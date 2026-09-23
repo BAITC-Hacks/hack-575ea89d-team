@@ -60,6 +60,16 @@ class PlannerTests(unittest.TestCase):
             self.assertGreaterEqual(env.remaining_budget - sum(1000 * channels[c['channel']]['cost_per_contact']
                                                                for c in campaigns), 0)
 
+    def test_uncertain_first_offer_opens_alternative_tariff(self):
+        env = SyntheticEnv({("b", "sms"): .01, ("c", "sms"): .8}, count=12000)
+        env.customer_profile["current_tariff"] = [f"a{i // 1000}" for i in range(12000)]
+        candidates = [{"filter_current_tariff": f"a{i}", "target_tariff": "b"} for i in range(12)]
+        candidates.append({"filter_current_tariff": "a0", "target_tariff": "c"})
+        with patch("strategy.planner.build_candidates", return_value=candidates):
+            campaigns = plan_campaigns(env)
+        self.assertTrue(any(p["target_tariff"] == "c" for p in env.pilot_history))
+        self.assertTrue(any(c["target_tariff"] == "c" for c in campaigns))
+
     def test_overlap_is_charged_and_only_marginal_lift_counts(self):
         def arm(start, end, ratio, cost):
             return Arm({"target_tariff": str(ratio), "channel": "sms"},

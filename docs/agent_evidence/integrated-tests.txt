@@ -1,0 +1,33 @@
+test_negative_pilots_have_explicit_fallback (test_agent.AgentTests.test_negative_pilots_have_explicit_fallback) ... ok
+test_pilot_observations_change_choice (test_agent.AgentTests.test_pilot_observations_change_choice) ... ok
+test_reserves_resources_for_final_campaign (test_agent.AgentTests.test_reserves_resources_for_final_campaign) ... ok
+test_campaigns_and_all_contacts_fit (test_contract.ContractTests.test_campaigns_and_all_contacts_fit) ... ok
+test_nonfinite_metrics_are_json_null (test_contract.ContractTests.test_nonfinite_metrics_are_json_null) ... ok
+test_original_materials_unchanged (test_contract.ContractTests.test_original_materials_unchanged) ... ok
+test_report_matches_real_evaluator (test_contract.ContractTests.test_report_matches_real_evaluator) ... ok
+test_submission_reproducible_and_matches_file (test_contract.ContractTests.test_submission_reproducible_and_matches_file) ... ok
+test_duplicate_events_do_not_inflate_support (test_research.ResearchTests.test_duplicate_events_do_not_inflate_support) ... ok
+test_history_bin_edges (test_research.ResearchTests.test_history_bin_edges) ... ok
+test_invalid_values_and_tiny_cells_do_not_leak (test_research.ResearchTests.test_invalid_values_and_tiny_cells_do_not_leak) ... ok
+test_missing_empty_and_no_matching_history (test_research.ResearchTests.test_missing_empty_and_no_matching_history) ... ok
+test_negative_history_is_not_positive_effect (test_research.ResearchTests.test_negative_history_is_not_positive_effect) ... ok
+test_optional_columns_and_invalid_schema (test_research.ResearchTests.test_optional_columns_and_invalid_schema) ... ok
+test_outlier_resistance_and_rare_history_shrinkage (test_research.ResearchTests.test_outlier_resistance_and_rare_history_shrinkage) ... ok
+test_real_data_contract_determinism_and_no_mutation (test_research.ResearchTests.test_real_data_contract_determinism_and_no_mutation) ... ok
+test_split_large_audience_without_overlap_or_truncation (test_research.ResearchTests.test_split_large_audience_without_overlap_or_truncation) ... ok
+
+----------------------------------------------------------------------
+Ran 17 tests in 24.082s
+
+OK
+test_ambiguous_effect_gets_rechecked_clear_effect_stops (strategy.test_planner.PlannerTests.test_ambiguous_effect_gets_rechecked_clear_effect_stops) ... ok
+test_channel_choice_requires_observation_and_changes_with_it (strategy.test_planner.PlannerTests.test_channel_choice_requires_observation_and_changes_with_it) ... ok
+test_exhausted_pilot_api_stops_without_unbounded_retries (strategy.test_planner.PlannerTests.test_exhausted_pilot_api_stops_without_unbounded_retries) ... ok
+test_overlap_is_charged_and_only_marginal_lift_counts (strategy.test_planner.PlannerTests.test_overlap_is_charged_and_only_marginal_lift_counts) ... ok
+test_portfolio_respects_both_resources_and_campaign_count (strategy.test_planner.PlannerTests.test_portfolio_respects_both_resources_and_campaign_count) ... ok
+test_uncertain_first_offer_opens_alternative_tariff (strategy.test_planner.PlannerTests.test_uncertain_first_offer_opens_alternative_tariff) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.125s
+
+OK

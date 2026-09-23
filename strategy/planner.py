@@ -204,6 +204,23 @@ def plan_campaigns(env) -> list[dict]:
     while env.pilots_left > 0 and attempts < 20 and arms:
         selected, value = allocate(arms, len(profile), env.remaining_budget, env.remaining_contacts)
         actions = []
+        # If a segment's first offer is unconvincing, investigate the next
+        # research hypothesis for that same audience before abandoning it.
+        # Typical measured lift is only an exploration scale, not a predicted
+        # effect of the untested tariff; a direct pilot is always required.
+        typical_lift = float(np.median([max(0.0, a.mean) for a in arms]))
+        for hypothesis in hypotheses[next_hypothesis:]:
+            proposal = make_arm(hypothesis, initial_channel)
+            if any(a.campaign == proposal.campaign for a in arms):
+                continue
+            same_audience = [a for a in arms if np.array_equal(a.positions, proposal.positions)]
+            if not same_audience or any(a.lower > 0 for a in same_audience):
+                continue
+            incumbent = max(0.0, max(a.decision_ratio for a in same_audience))
+            uncertainty = min(a.error for a in same_audience)
+            score = (typical_lift + uncertainty - incumbent) * float(proposal.arpu.sum())
+            score -= proposal.size * proposal.cost
+            actions.append((score, "alternative", proposal, 80))
         for arm in list(arms):
             others = [a for a in arms if a is not arm and a.n
                       and np.array_equal(a.positions, arm.positions)]

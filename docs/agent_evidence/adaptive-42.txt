@@ -1,0 +1,43 @@
+=== Результат команды: local ===
+Статус: PASS
+Baseline ARPU (без кампаний):      150,641,084
+Прирост ARPU (gross):                2,081,152
+Затраты на коммуникацию:                58,842
+ЧИСТЫЙ РЕЗУЛЬТАТ (net):              2,022,310   (+1.342% к baseline)
+ARPU после кампаний:               152,663,394
+
+Кампаний: 24  |  контактов: 8,709  |  уникальных абонентов: 7,413 (31.6%)
+Средний чистый прирост на абонента: 272.8
+ROI (gross lift / затраты): 35.37
+Risk score (% абонентов с отрицательным эффектом): 0.0%
+Бюджет: 58,842 из 100,000 у.е. (58.8%)
+
+По кампаниям (gross, до дедупликации между кампаниями):
+  - pilot_1 [sms]: контактов=80  cost=320  gross_lift=24,963  negative=0
+  - pilot_2 [sms]: контактов=80  cost=320  gross_lift=60,515  negative=0
+  - pilot_3 [sms]: контактов=80  cost=320  gross_lift=63,782  negative=0
+  - pilot_4 [sms]: контактов=80  cost=320  gross_lift=75,222  negative=0
+  - pilot_5 [sms]: контактов=80  cost=320  gross_lift=25,038  negative=0
+  - pilot_6 [sms]: контактов=80  cost=320  gross_lift=7,739  negative=0
+  - pilot_7 [sms]: контактов=80  cost=320  gross_lift=58,620  negative=0
+  - pilot_8 [sms]: контактов=80  cost=320  gross_lift=1,419  negative=0
+  - pilot_9 [sms]: контактов=80  cost=320  gross_lift=1,430  negative=0
+  - pilot_10 [push]: контактов=80  cost=0  gross_lift=1,017  negative=0
+  - pilot_11 [push]: контактов=80  cost=0  gross_lift=1,048  negative=0
+  - pilot_12 [push]: контактов=160  cost=0  gross_lift=2,249  negative=0
+  - pilot_13 [digital_ads]: контактов=80  cost=1,760  gross_lift=79,051  negative=0
+  - pilot_14 [sms]: контактов=80  cost=320  gross_lift=7,430  negative=0
+  - pilot_15 [push]: контактов=200  cost=0  gross_lift=2,837  negative=0
+  - pilot_16 [push]: контактов=80  cost=0  gross_lift=46,062  negative=0
+  - pilot_17 [digital_ads]: контактов=80  cost=1,760  gross_lift=75,452  negative=0
+  - pilot_18 [sms]: контактов=160  cost=640  gross_lift=14,843  negative=0
+  - pilot_19 [sms]: контактов=200  cost=800  gross_lift=19,025  negative=0
+  - pilot_20 [digital_ads]: контактов=80  cost=1,760  gross_lift=78,512  negative=0
+  - adaptive_1 [digital_ads]: контактов=1,227  cost=26,994  gross_lift=1,192,642  negative=0
+  - adaptive_2 [sms]: контактов=299  cost=1,196  gross_lift=233,149  negative=0
+  - adaptive_3 [sms]: контактов=4,726  cost=18,904  gross_lift=85,955  negative=0
+  - adaptive_4 [sms]: контактов=457  cost=1,828  gross_lift=412,010  negative=0
+
+Пилотов проведено: 20 из 20
+Осталось бюджета: 90,080 из 100,000
+Осталось охвата:  13,000 из 15,000

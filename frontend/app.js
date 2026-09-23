@@ -70,6 +70,7 @@ function invalidate() {
   syncControls();
 }
 function renderIncidents() {
+  syncFilterMenus();
   const active = state.incidents.filter(i=>!['closed','resolved','completed'].includes(i.status));
   $('overview').replaceChildren(metric('Активных инцидентов',fmt(active.length)),metric('Критических',fmt(active.filter(i=>i.priority === 'critical').length)),metric('Вышек в сети',fmt(state.towers.length)));
   const query = $('search').value.trim().toLowerCase();
@@ -238,6 +239,80 @@ $('create-order').onclick = () => run(async () => {
 });
 $('order-form').onsubmit = event => { event.preventDefault(); run(async () => { $('saved-order').hidden = true; const data = await api(`/work-orders/${encodeURIComponent($('order-id').value.trim())}`); if (!data.work_order) throw new Error('API не вернул work_order.'); renderOrder($('saved-order'),data.work_order); say('Заказ прочитан из backend.'); }); };
 
+// Keep native selects as the filter data source; enhance their visible controls.
+const filterMenus = [];
+function syncFilterMenus() {
+  for (const menu of filterMenus) {
+    menu.close();
+    menu.value.textContent = menu.select.selectedOptions[0]?.textContent || 'Все';
+    menu.trigger.classList.toggle('has-selection', menu.select.value !== '');
+    menu.list.replaceChildren();
+    for (const option of menu.select.options) {
+      const row = el('div',undefined,'filter-option');
+      row.id = `${menu.select.id}-option-${menu.list.children.length}`;
+      row.setAttribute('role','option');
+      row.setAttribute('aria-selected',String(option.selected));
+      row.dataset.value = option.value;
+      const dot = el('span',undefined,'filter-dot'); dot.dataset.level = menu.select.id === 'priority-filter' ? option.value : '';
+      dot.setAttribute('aria-hidden','true');
+      const check = el('span',option.selected ? '✓' : '','filter-check'); check.setAttribute('aria-hidden','true');
+      row.append(dot,el('span',option.textContent,'filter-option-label'),check);
+      row.onmousedown = event => event.preventDefault();
+      row.onclick = () => menu.choose(option.value);
+      menu.list.append(row);
+    }
+  }
+}
+function initFilterMenus() {
+  document.querySelectorAll('.filters select').forEach(select => {
+    const label = select.parentElement, name = label.firstChild.textContent.trim();
+    const wrapper = el('div',undefined,'filter-field'), caption = el('span',name,'filter-label');
+    caption.id = `${select.id}-label`;
+    label.replaceWith(wrapper); wrapper.append(caption,select); select.hidden = true;
+    const trigger = el('button',undefined,'filter-trigger'), value = el('span','Все','filter-value');
+    trigger.type = 'button'; trigger.id = `${select.id}-trigger`; value.id = `${select.id}-value`;
+    trigger.setAttribute('role','combobox'); trigger.setAttribute('aria-haspopup','listbox');
+    trigger.setAttribute('aria-expanded','false'); trigger.setAttribute('aria-labelledby',`${caption.id} ${value.id}`);
+    const arrow = el('span',undefined,'filter-arrow'); arrow.setAttribute('aria-hidden','true'); trigger.append(value,arrow);
+    const list = el('div',undefined,'filter-menu'); list.id = `${select.id}-menu`; list.hidden = true;
+    list.setAttribute('role','listbox'); list.setAttribute('aria-labelledby',caption.id); trigger.setAttribute('aria-controls',list.id);
+    wrapper.append(trigger,list);
+    let active = 0, search = '', searchAt = 0;
+    const menu = {select,trigger,value,list,
+      close() { list.hidden = true; trigger.setAttribute('aria-expanded','false'); trigger.removeAttribute('aria-activedescendant'); wrapper.classList.remove('is-open'); },
+      choose(next) { select.value = next; menu.close(); trigger.focus(); select.dispatchEvent(new Event('change')); }
+    };
+    const focusOption = index => {
+      if (!list.children.length) return;
+      active = Math.max(0,Math.min(index,list.children.length-1));
+      [...list.children].forEach((row,i)=>row.classList.toggle('is-active',i === active));
+      trigger.setAttribute('aria-activedescendant',list.children[active].id);
+      list.children[active].scrollIntoView({block:'nearest'});
+    };
+    const open = () => { filterMenus.forEach(item=>item.close()); list.hidden = false; wrapper.classList.add('is-open'); trigger.setAttribute('aria-expanded','true'); focusOption(Math.max(0,select.selectedIndex)); };
+    trigger.onclick = () => list.hidden ? open() : menu.close();
+    trigger.onkeydown = event => {
+      if (event.key === 'Tab') { menu.close(); return; }
+      if (event.key === 'Escape') { event.preventDefault(); menu.close(); return; }
+      if (['ArrowDown','ArrowUp','Home','End','Enter',' '].includes(event.key)) {
+        event.preventDefault();
+        if (list.hidden) { open(); if (event.key === 'End') focusOption(list.children.length-1); return; }
+        if (event.key === 'Enter' || event.key === ' ') { menu.choose(list.children[active].dataset.value); return; }
+        focusOption(event.key === 'Home' ? 0 : event.key === 'End' ? list.children.length-1 : active + (event.key === 'ArrowDown' ? 1 : -1));
+      } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault(); if (list.hidden) open();
+        search = Date.now()-searchAt > 700 ? event.key : search+event.key; searchAt = Date.now();
+        const index = [...select.options].findIndex(option=>option.textContent.toLowerCase().startsWith(search.toLowerCase()));
+        if (index >= 0) focusOption(index);
+      }
+    };
+    wrapper.addEventListener('focusout',event=>{ if (!wrapper.contains(event.relatedTarget)) menu.close(); });
+    filterMenus.push(menu);
+  });
+  document.addEventListener('pointerdown',event=>filterMenus.forEach(menu=>{ if (!menu.trigger.parentElement.contains(event.target)) menu.close(); }));
+  syncFilterMenus();
+}
+initFilterMenus();
 for (const id of ['priority-filter','status-filter','area-filter','cause-filter']) $(id).onchange = renderIncidents;
 $('search').oninput = renderIncidents;
 $('reset-filters').onclick = () => { for (const id of ['search','priority-filter','status-filter','area-filter','cause-filter']) $(id).value = ''; renderIncidents(); };

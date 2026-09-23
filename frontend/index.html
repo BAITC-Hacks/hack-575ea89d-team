@@ -1,10 +1,14 @@
 <!doctype html>
 <html lang="ru">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Центр управления сетью</title><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""><link rel="stylesheet" href="styles.css"><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script><script src="app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><script src="appearance.js"></script><title>Центр управления сетью</title><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""><link rel="stylesheet" href="styles.css"><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script><script src="app.js" defer></script></head>
 <body>
 <a class="skip" href="#workspace">К инцидентам</a>
 <header><div class="brand"><span class="logo" aria-hidden="true">N</span><div><strong>Network Intelligence</strong><small>Центр управления сетью</small></div></div><span class="source">Демо · синтетические данные</span></header>
 <main>
+<section class="appearance-bar" aria-label="Оформление интерфейса">
+<div class="appearance-caption"><span class="appearance-eyebrow">ВАШЕ РАБОЧЕЕ ПРОСТРАНСТВО</span><strong>Оформление</strong><span id="appearance-status" aria-live="polite">Тема интерфейса</span></div>
+<div class="theme-modes" role="group" aria-label="Режим темы"><button type="button" data-theme-mode="light" aria-pressed="true">☀ Светлая</button><button type="button" data-theme-mode="dark" aria-pressed="false">☾ Тёмная</button></div>
+</section>
 <div class="heading"><div><p class="eyebrow">РАБОЧЕЕ МЕСТО ОПЕРАТОРА</p><h1>Что происходит в сети?</h1><p>Выберите инцидент, оцените решение и передайте его команде.</p></div><div class="heading-actions"><a class="studio-jump" href="#decision-lab">Пульт решений ↗</a><button id="refresh" class="secondary">Обновить данные</button></div></div>
 <div class="data-status"><span id="api-indicator" class="api-indicator" role="status" title="Состояние по последнему запросу. Кнопка «Обновить данные» проверяет связь заново.">Ожидание API</span><span id="data-freshness" title="Время получения данных браузером, а не время измерения нагрузки.">Сеть ещё не загружена</span></div>
 <div id="overview" class="overview" aria-label="Сводка сети"></div>

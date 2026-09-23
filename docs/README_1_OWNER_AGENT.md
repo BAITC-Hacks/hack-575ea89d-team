@@ -8,14 +8,12 @@
 
 ## Начало
 
-Прочитать AGENTS.md → STATUS.md → README.md → PARTICIPANT_GUIDE.md → docs/API_CONTRACT.md. Проверить git status, не стирать локальные изменения. Пока PR #4 открыт, начать от опубликованной ветки новой основы:
+Прочитать AGENTS.md → STATUS.md → README.md → PARTICIPANT_GUIDE.md → docs/API_CONTRACT.md. Проверить git status, не стирать локальные изменения. Начать от актуального main нового проекта:
 
 ```bash
 git fetch origin
-git switch -c work/laptop-1-agent origin/codex/beeline-tariff-reset
+git switch -c work/laptop-1-agent origin/main
 ```
-
-После объединения PR #4 вместо origin/codex/beeline-tariff-reset используйте origin/main.
 
 Если ветка уже существует — переключиться на неё и сравнить с origin/main, не создавать повторно. Окружение и установка — в общем README. Запустить local_eval.py и сохранить исходный результат для сравнения.
 

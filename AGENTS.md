@@ -7,7 +7,7 @@
 1. `STATUS.md`, `README.md`, `PARTICIPANT_GUIDE.md`.
 2. `docs/API_CONTRACT.md`.
 3. Инструкцию своего ноутбука: `docs/README_1_OWNER_AGENT.md`, `docs/README_2_OWNER_RESEARCH.md` или `docs/README_3_PARTNER_DEMO.md`.
-4. Проверить ветку, `git status`. Пока PR #4 открыт, новая основа — `origin/codex/beeline-tariff-reset`; после его объединения — `origin/main`. Не затирать локальную чужую работу.
+4. Проверить ветку, `git status` и актуальный `origin/main` — основу нового проекта. Не затирать локальную чужую работу.
 
 ## Ответственность
 

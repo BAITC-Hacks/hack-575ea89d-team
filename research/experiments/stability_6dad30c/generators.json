@@ -1,0 +1,2235 @@
+{
+  "schema_version": 2,
+  "mode": "mock",
+  "comparison_kind": "candidate_generators_fixed_planner",
+  "full_agent_comparison": false,
+  "started_at_utc": "2026-09-23T12:24:49.381558+00:00",
+  "plan": {
+    "schema_version": 1,
+    "base_main": "6dad30c",
+    "comparison_kind": "candidate_generators_fixed_planner",
+    "variants": [
+      "original",
+      "current",
+      "median"
+    ],
+    "original_ref": "58c794b",
+    "original_path": "research/candidates.py",
+    "seed_groups": {
+      "known_0_9": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "known_30_39": [
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+      ],
+      "control_50_69": [
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69
+      ]
+    },
+    "bootstrap": {
+      "replicates": 200,
+      "rng_seed": 20260923,
+      "top_k": 12,
+      "unit": "unique historical event; deduplicate original events before global sampling with replacement",
+      "preserve_draw_multiplicity": "assign temporary synthetic event IDs after drawing; never change source CSV",
+      "leave_one_out": "each eligible event in baseline top-12 cells with 1..30 historical observations"
+    },
+    "rules": [
+      "Do not tune any generator or planner using these runs, including control_50_69.",
+      "All variants use the exact same current Agent/planner, data and evaluator for each seed.",
+      "This is NOT a comparison of full agents across commits.",
+      "Run variants sequentially in a rotating order; record raw wall time with no claim of isolated timing.",
+      "Preserve all failures and negative deltas; report all three seed groups separately.",
+      "Bootstrap stability is conditional ranking sensitivity, not causal campaign confidence.",
+      "Never overwrite previous result files. Record source, data, dependency and plan fingerprints."
+    ]
+  },
+  "seed_list": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61,
+    62,
+    63,
+    64,
+    65,
+    66,
+    67,
+    68,
+    69
+  ],
+  "provenance": {
+    "git_head": "be8ee4090540684d292d0cf102ac1140543df803",
+    "git_status": "",
+    "sources": {
+      "agent.py": {
+        "path": "agent.py",
+        "sha256": "7177eb4f976f5ee1b78758c8c720f0580bb0b8f0587d4495be7eaaa36b9c58ca",
+        "lf_sha256": "8618a8de27534fc0783ec6e0748cdf277b307634d236e4d2bac7949d79ec106b",
+        "bytes": 199,
+        "last_path_commit": "4f002a7b51207666bbda9f512072b4ac6fb485f2",
+        "source_utf8": "\"\"\"Submission entry point. Run from the repository root.\"\"\"\nfrom strategy.planner import plan_campaigns\n\n\nclass Agent:\n    def act(self, env) -> list[dict]:\n        return plan_campaigns(env)\n"
+      },
+      "strategy/planner.py": {
+        "path": "strategy/planner.py",
+        "sha256": "f6fd5f89f573818acc0fcadc8d2f90d49b81527dd4a087e091a05097dc6f7f6e",
+        "lf_sha256": "b64527a41885107aeb430b8cd7b47cd03b79c38524c0689af0026c3d10a1955f",
+        "bytes": 13355,
+        "last_path_commit": "36b1dac6da44b76c2fb63cdb17e0d56b0af78c71",
+        "source_utf8": "\"\"\"Public observations drive bounded exploration and overlap-aware allocation.\n\nHistory orders hypotheses only. No local evaluator or hidden model is used here.\n\"\"\"\nimport math\nfrom dataclasses import dataclass, field\n\nimport numpy as np\n\nfrom research.candidates import build_candidates\n\nFILTERS = (\"filter_current_tariff\", \"filter_arpu_segment\", \"filter_data_segment\", \"filter_call_segment\")\n\n\ndef select_segment(profile, campaign):\n    result = profile\n    for key in FILTERS:\n        value = campaign.get(key)\n        if value is None or (isinstance(value, float) and math.isnan(value)):\n            continue\n        column = key.removeprefix(\"filter_\")\n        if key == \"filter_current_tariff\":\n            result = result[result[column].isin([v.strip() for v in str(value).split(\";\")])]\n        else:\n            result = result[result[column] == value]\n    return result.sort_values(\"ID_NUMBER\")\n\n\n@dataclass\nclass Arm:\n    campaign: dict\n    positions: np.ndarray\n    arpu: np.ndarray\n    cost: float\n    samples: list = field(default_factory=list)\n\n    @property\n    def size(self):\n        return len(self.positions)\n\n    @property\n    def n(self):\n        return sum(n for n, _ in self.samples)\n\n    @property\n    def mean(self):\n        return sum(n * r for n, r in self.samples) / self.n if self.n else 0.0\n\n    @property\n    def error(self):\n        # Conservative unit-scale working noise model, not a calibrated CI.\n        # Repeated observations may increase, but never decrease, this floor.\n        variance = 1.0\n        if len(self.samples) > 1:\n            variance = max(variance, sum(n * (r - self.mean) ** 2 for n, r in self.samples)\n                           / (len(self.samples) - 1))\n        return math.sqrt(variance / self.n) if self.n else float(\"inf\")\n\n    @property\n    def decision_ratio(self):\n        # Weak neutral shrinkage for expected-net allocation. Confidence bounds\n        # guide further measurement, not a significance gate that discards\n        # all moderately positive but noisy opportunities.\n        return self.mean * self.n / (self.n + 20)\n\n    @property\n    def lower(self):\n        return self.mean - self.error\n\n\ndef pilot_credit(arms, count):\n    \"\"\"Upper approximation to already earned positive lift, with unknown IDs.\n\n    Public pilot results do not expose sampled IDs. Summing expected coverage\n    credits (capped at the best observed ratio) is deliberately conservative\n    for overlapping/repeated pilots; it is not an exact deduplication model.\n    \"\"\"\n    credit, ceiling = np.zeros(count), np.zeros(count)\n    for arm in arms:\n        if not arm.n:\n            continue\n        ratio = max(0.0, arm.mean)\n        credit[arm.positions] += ratio * min(1.0, arm.n / arm.size)\n        ceiling[arm.positions] = np.maximum(ceiling[arm.positions], ratio)\n    return np.minimum(credit, ceiling)\n\n\ndef allocate(arms, count, budget, contacts):\n    \"\"\"Compare deterministic greedy packings using marginal net value.\n\n    Full audiences consume contacts/cost, even when overlapping. Only the\n    improvement over prior contacts contributes value. Several resource prices\n    avoid a single expensive arm crowding out multiple better combinations.\n    \"\"\"\n    credit = pilot_credit(arms, count)\n    tested = [a for a in arms if a.n and a.size <= min(5000, contacts)\n              and a.size * a.cost <= budget]\n    best, best_value = [], -float(\"inf\")\n    for penalty in (0.0, 0.5, 1.0, 2.0):\n        chosen, covered, left_budget, left_contacts = [], credit.copy(), budget, contacts\n        value = 0.0\n        while len(chosen) < 10:\n            options = []\n            for index, arm in enumerate(tested):\n                if index in chosen or arm.size > left_contacts or arm.size * arm.cost > left_budget:\n                    continue\n                gain = float((np.maximum(0.0, arm.decision_ratio - covered[arm.positions]) * arm.arpu).sum()) - arm.size * arm.cost\n                if gain <= 0 or arm.decision_ratio <= 0:\n                    continue\n                resource = arm.size / max(1, contacts) + arm.size * arm.cost / max(1, budget)\n                options.append((gain / (1.0 + penalty * resource * 10), -index, gain))\n            if not options:\n                break\n            _, minus_index, gain = max(options)\n            index = -minus_index\n            arm = tested[index]\n            chosen.append(index)\n            value += gain\n            covered[arm.positions] = np.maximum(covered[arm.positions], arm.decision_ratio)\n            left_budget -= arm.size * arm.cost\n            left_contacts -= arm.size\n        if value > best_value:\n            best, best_value = [tested[i] for i in chosen], value\n    if not best and tested:\n        # Required >=1 campaign: least estimated loss among feasible tested arms.\n        # A negative series can still lose money; there is no guaranteed profit.\n        best = [max(tested, key=lambda a: float((a.mean * a.arpu).sum()) - a.size * a.cost)]\n    return best, max(0.0, best_value)\n\n\ndef plan_campaigns(env) -> list[dict]:\n    profile = env.customer_profile.reset_index(drop=True)\n    candidates = build_candidates(env.customer_profile, env.tariffs)\n    channels = sorted(env.channels, key=lambda c: (float(env.channels[c][\"cost_per_contact\"]), c))\n    if not channels:\n        return []\n    initial_channel = \"sms\" if \"sms\" in channels else channels[0]\n    arms, hypotheses, seen = [], [], set()\n    for candidate in candidates:\n        campaign = {key: candidate[key] for key in FILTERS if candidate.get(key) is not None}\n        campaign[\"target_tariff\"] = candidate[\"target_tariff\"]\n        signature = tuple(str(campaign.get(k)) for k in (*FILTERS, \"target_tariff\"))\n        if signature in seen:\n            continue\n        seen.add(signature)\n        segment = select_segment(profile, campaign)\n        if not 10 <= len(segment) <= 5000:\n            continue\n        hypotheses.append((campaign, segment.index.to_numpy(), segment.predicted_arpu.to_numpy(dtype=float)))\n\n    def make_arm(hypothesis, channel):\n        campaign, positions, arpu = hypothesis\n        return Arm({**campaign, \"channel\": channel}, positions, arpu,\n                   float(env.channels[channel][\"cost_per_contact\"]))\n\n    initial_budget, initial_contacts = float(env.remaining_budget), int(env.remaining_contacts)\n    exploration_budget = initial_budget * 0.20\n    exploration_contacts = min(3000, int(initial_contacts * 0.20))\n    attempts, next_hypothesis = 0, 0\n\n    def sample(arm, requested, selected):\n        nonlocal attempts\n        spent = initial_budget - env.remaining_budget\n        used = initial_contacts - env.remaining_contacts\n        # Preserve the current complete plan, or at least the tested campaign.\n        reserve_contacts = sum(a.size for a in selected) if selected else arm.size\n        reserve_budget = sum(a.size * a.cost for a in selected) if selected else arm.size * arm.cost\n        available = min(env.remaining_contacts - reserve_contacts,\n                        exploration_contacts - used, arm.size, requested, 200)\n        if arm.cost:\n            available = min(available, (env.remaining_budget - reserve_budget) // arm.cost,\n                            (exploration_budget - spent) // arm.cost)\n        # On a tiny residual environment, allow one initial pilot and one final\n        # campaign instead of enforcing the discretionary 20% envelope.\n        if not arms:\n            available = min(requested, arm.size, 200, env.remaining_contacts - arm.size)\n            if arm.cost:\n                available = min(available, (env.remaining_budget - arm.size * arm.cost) // arm.cost)\n        n = int(available)\n        if n < 10:\n            return False\n        attempts += 1\n        try:\n            result = env.run_pilot(n_customers=n, **arm.campaign)\n        except RuntimeError:\n            return False\n        ratio, actual = float(result[\"observed_lift_ratio\"]), int(result[\"n_customers\"])\n        if actual > 0 and math.isfinite(ratio):\n            arm.samples.append((actual, ratio))\n            if not any(a is arm for a in arms):\n                arms.append(arm)\n        return True\n\n    typical_value = float(np.median([h[2].sum() for h in hypotheses[:12]])) if hypotheses else 1.0\n    typical_value = max(1.0, typical_value)\n    # Initial coverage of diverse hypotheses, in the research module's order.\n    # More ARPU at stake warrants better precision; sample size is bounded.\n    while next_hypothesis < min(12, len(hypotheses)) and env.pilots_left > 0 and attempts < 20:\n        arm = make_arm(hypotheses[next_hypothesis], initial_channel)\n        next_hypothesis += 1\n        selected, _ = allocate(arms, len(profile), env.remaining_budget, env.remaining_contacts)\n        sample(arm, min(200, max(80, int(80 * math.sqrt(float(arm.arpu.sum()) / typical_value)))), selected)\n\n    while env.pilots_left > 0 and attempts < 20 and arms:\n        selected, value = allocate(arms, len(profile), env.remaining_budget, env.remaining_contacts)\n        actions = []\n        # If a segment's first offer is unconvincing, investigate the next\n        # research hypothesis for that same audience before abandoning it.\n        # Typical measured lift is only an exploration scale, not a predicted\n        # effect of the untested tariff; a direct pilot is always required.\n        typical_lift = float(np.median([max(0.0, a.mean) for a in arms]))\n        for hypothesis in hypotheses[next_hypothesis:]:\n            proposal = make_arm(hypothesis, initial_channel)\n            if any(a.campaign == proposal.campaign for a in arms):\n                continue\n            same_audience = [a for a in arms if np.array_equal(a.positions, proposal.positions)]\n            if not same_audience or any(a.lower > 0 for a in same_audience):\n                continue\n            incumbent = max(0.0, max(a.decision_ratio for a in same_audience))\n            uncertainty = min(a.error for a in same_audience)\n            score = (typical_lift + uncertainty - incumbent) * float(proposal.arpu.sum())\n            score -= proposal.size * proposal.cost\n            actions.append((score, \"alternative\", proposal, 80))\n        for arm in list(arms):\n            others = [a for a in arms if a is not arm and a.n\n                      and np.array_equal(a.positions, arm.positions)]\n            competitor = max([0.0] + [a.lower - a.cost / max(1.0, float(a.arpu.mean())) for a in others])\n            net_upper = arm.mean + arm.error - arm.cost / max(1.0, float(arm.arpu.mean()))\n            net_lower = arm.lower - arm.cost / max(1.0, float(arm.arpu.mean()))\n            if arm.n < 400 and net_lower <= competitor < net_upper:\n                # Resolve sign or close alternatives; clear losers are retired.\n                reduction = 1.0 - math.sqrt(arm.n / (arm.n + min(200, max(80, arm.n))))\n                score = min(2 * arm.error, net_upper - competitor) * reduction * float(arm.arpu.sum())\n                actions.append((score, \"repeat\", arm, min(200, max(80, arm.n))))\n            if arm.lower <= 0:\n                continue\n            for channel in channels:\n                if any(a.campaign == {**arm.campaign, \"channel\": channel} for a in arms):\n                    continue\n                other = Arm({**arm.campaign, \"channel\": channel}, arm.positions, arm.arpu,\n                            float(env.channels[channel][\"cost_per_contact\"]))\n                if other.size * other.cost > env.remaining_budget:\n                    continue\n                source_multiplier = env.channels[arm.campaign[\"channel\"]].get(\"conversion_multiplier\", 1.0)\n                target_multiplier = env.channels[channel].get(\"conversion_multiplier\", 1.0)\n                factor = target_multiplier / max(float(source_multiplier), 1e-9)\n                # Saturation means multiplier ratios are only optimistic bounds.\n                # Final decisions always require a direct pilot of this channel.\n                optimistic = max(1.0, factor) * (arm.mean + arm.error)\n                incumbent = max([0.0] + [a.lower - a.cost / max(1.0, float(a.arpu.mean()))\n                                        for a in [arm, *others]])\n                score = (optimistic - incumbent) * float(arm.arpu.sum()) - other.size * other.cost\n                actions.append((score, \"channel\", other, 80))\n        performed = False\n        for score, kind, arm, n in sorted(actions, key=lambda a: -a[0]):\n            # Stop when plausible decision improvement is below the information\n            # purchase plus 1% of the current conservative portfolio value.\n            opportunity = n * (arm.cost + value / max(1, env.remaining_contacts))\n            if score <= max(0.01 * value, opportunity):\n                continue\n            if sample(arm, n, selected):\n                performed = True\n                break\n        if not performed:\n            break\n    selected, _ = allocate(arms, len(profile), env.remaining_budget, env.remaining_contacts)\n    return [{\"campaign_name\": f\"adaptive_{i + 1}\", **arm.campaign} for i, arm in enumerate(selected)]\n"
+      },
+      "research/candidates.py": {
+        "path": "research/candidates.py",
+        "sha256": "487f20e341f188489553602223bcb5b562baef87d41925159d033b50a1bb2f76",
+        "lf_sha256": "44f93e789423f567925a363085b18185543fdd3f37ce730982429604ecf18e9b",
+        "bytes": 7758,
+        "last_path_commit": "9b7d5ef76da9b36e7ace392d21e468d5c91234a6",
+        "source_utf8": "\"\"\"Public-data pilot hypotheses. Historical switcher ratios are not conversion rates.\"\"\"\nimport math\nfrom pathlib import Path\n\nimport numpy as np\nimport pandas as pd\n\nHISTORY_COLUMNS = ['tariff_plan_code_from', 'tariff_plan_code_to',\n                   'AVG_ARPU_PREV_3M', 'AVG_ARPU_NEXT_3M']\nSEGMENTS = {'arpu_segment': ('LOW', 'MID', 'HIGH'),\n            'data_segment': ('NON_USER', 'LITE', 'HEAVY'),\n            'call_segment': ('LOW', 'MEDIUM', 'HIGH')}\nPRIOR_WEIGHT = 20\n\n\ndef _history_stats(path, known):\n    \"\"\"Return (shrunk ratio, valid record count, caution margin) per cell.\n\n    Missing/empty history is a cold start. Malformed files raise an error.\n    The margin is a ranking heuristic, NOT a calibrated confidence interval.\n    \"\"\"\n    try:\n        history = pd.read_csv(path)\n    except (FileNotFoundError, pd.errors.EmptyDataError):\n        return {}\n    missing = set(HISTORY_COLUMNS) - set(history.columns)\n    if missing:\n        raise ValueError(f'History missing columns: {sorted(missing)}')\n    # Equal measurements from different customers are independent records.\n    if {'ID_NUMBER', 'TIME_KEY'}.issubset(history.columns):\n        history = history.drop_duplicates()\n    history = history.copy()\n    for col in HISTORY_COLUMNS[2:]:\n        history[col] = pd.to_numeric(history[col], errors='coerce')\n    before, after = history.AVG_ARPU_PREV_3M, history.AVG_ARPU_NEXT_3M\n    valid = (np.isfinite(before) & np.isfinite(after) & (before >= 100) & (after >= 0)\n             & history.tariff_plan_code_from.isin(known)\n             & history.tariff_plan_code_to.isin(known)\n             & (history.tariff_plan_code_from != history.tariff_plan_code_to))\n    history = history.loc[valid].copy()\n    before = history.AVG_ARPU_PREV_3M\n    # Guide: LOW <1000, MID 1000..5000 inclusive, HIGH >5000.\n    history['arpu_segment'] = np.where(before < 1000, 'LOW', np.where(before <= 5000, 'MID', 'HIGH'))\n    history['change'] = (history.AVG_ARPU_NEXT_3M / before - 1).clip(-1, 3)\n    stats = {}\n    for key, rows in history.groupby(['tariff_plan_code_from', 'arpu_segment', 'tariff_plan_code_to'], observed=True, sort=True):\n        values = rows.change.sort_values().to_numpy()\n        n = len(values)\n        if n >= 10:\n            values = np.clip(values, *np.quantile(values, [.1, .9]))\n        mean = float(values.mean())\n        shrunk = mean * n / (n + PRIOR_WEIGHT)\n        # Regularized dispersion prevents singleton certainty.\n        variance = (float(np.square(values - mean).sum()) + PRIOR_WEIGHT * .25) / (n + PRIOR_WEIGHT)\n        margin = math.sqrt(variance / (n + PRIOR_WEIGHT))\n        stats[key] = (shrunk, n, margin)\n    return stats\n\n\ndef _cells(group, filters, columns=('data_segment', 'call_segment')):\n    \"\"\"Disjoint representable cells only; never truncate rows behind a filter.\"\"\"\n    if len(group) < 10:\n        return\n    if len(group) <= 5000:\n        yield filters, group\n        return\n    alternatives = []\n    for col in columns:\n        if col not in group:\n            continue\n        children = []\n        remaining = tuple(c for c in columns if c != col)\n        for label in SEGMENTS[col]:\n            child = group.loc[group[col] == label]\n            children.extend(_cells(child, {**filters, f'filter_{col}': label}, remaining))\n        alternatives.append(children)\n    if alternatives:\n        # Retain the largest legal audience, then prefer fewer fragments.\n        yield from max(alternatives, key=lambda cells: (sum(len(g) for _, g in cells), -len(cells)))\n    # No legal split remains: omit the oversized cell, never truncate IDs.\n\n\ndef _median(frame, column):\n    if column not in frame:\n        return None\n    values = pd.to_numeric(frame[column], errors='coerce')\n    values = values[np.isfinite(values) & (values >= 0)]\n    return float(values.median()) if len(values) else None\n\n\ndef _fit(group, tariff):\n    \"\"\"Weak package/affordability tie breaker, not a response probability.\"\"\"\n    scores = []\n    for usage, capacity in (('DATA_VOLUME', 'Data_in_PKG'),\n                            ('OUT_LOC_OFFNET_MIN', 'Min_another_operator_in_PKG')):\n        demand = _median(group, usage)\n        cap = pd.to_numeric(tariff.get(capacity), errors='coerce')\n        if usage == 'OUT_LOC_OFFNET_MIN':\n            shared = pd.to_numeric(tariff.get('Min_another_operator_and_city_in_PKG'), errors='coerce')\n            land = _median(group, 'OUT_LOC_LAND_MIN')\n            if pd.notna(shared) and shared > 0:\n                cap = (max(0.0, shared - land) + (cap if pd.notna(cap) else 0)\n                       if land is not None else float('nan'))\n        if demand is not None and pd.notna(cap) and np.isfinite(cap) and cap >= 0:\n            scores.append(1.0 if demand == 0 else min(1.0, float(cap) / demand))\n    value = _median(group, 'predicted_arpu')\n    price = pd.to_numeric(tariff.get('price_tariff'), errors='coerce')\n    if value is not None and pd.notna(price) and np.isfinite(price) and price >= 0:\n        scores.append(1.0 if price == 0 else min(1.0, value / price))\n    return float(np.mean(scores)) if scores else .5\n\n\ndef build_candidates(profile, tariffs, history_path=None) -> list[dict]:\n    \"\"\"Contract v1: 10..5000 rows, two alternatives per disjoint cell.\n\n    One option from every cell precedes second options. Missing evidence has\n    small exploration priority but a zero historical prior. No env access.\n    \"\"\"\n    path = Path(history_path) if history_path is not None else Path(__file__).resolve().parents[1] / 'data/change_tariff.csv'\n    tariff_rows = tariffs.dropna(subset=['tariff_plan_code']).copy()\n    if tariff_rows.tariff_plan_code.duplicated().any():\n        raise ValueError('tariff_plan_code must be unique')\n    tariff_rows = tariff_rows.set_index('tariff_plan_code')\n    known = sorted(tariff_rows.index.astype(str))\n    stats = _history_stats(path, known)\n    cells = []\n    for (current, segment), group in profile.groupby(['current_tariff', 'arpu_segment'], observed=True, sort=True):\n        if current not in known or segment not in SEGMENTS['arpu_segment']:\n            continue\n        filters = {'filter_current_tariff': str(current), 'filter_arpu_segment': str(segment)}\n        for cell_filters, cell in _cells(group, filters):\n            value = pd.to_numeric(cell.predicted_arpu, errors='coerce')\n            # A public filter would still select malformed rows. Reject the\n            # entire cell instead of silently pricing only its valid subset.\n            if not (np.isfinite(value) & (value >= 0)).all():\n                continue\n            audience_value = float(value.sort_values().sum())\n            options = []\n            for target in known:\n                if target == current:\n                    continue\n                prior, support, margin = stats.get((current, segment, target), (0.0, 0, 0.0))\n                fit = _fit(cell, tariff_rows.loc[target])\n                signal = max(prior - margin, 0.0) if support else .01\n                options.append({**cell_filters, 'target_tariff': target,\n                                'prior_lift_ratio': prior, 'history_support': support,\n                                'priority': signal * audience_value * (.75 + .25 * fit)})\n            options.sort(key=lambda c: (-c['priority'], -c['history_support'], c['target_tariff']))\n            if options:\n                cells.append(options)\n    cells.sort(key=lambda options: (-options[0]['priority'], tuple(sorted((k, v) for k, v in options[0].items() if k.startswith('filter_')))))\n    return [options[rank] for rank in range(2) for options in cells if len(options) > rank]\n"
+      },
+      "research/median_candidates.py": {
+        "path": "research/median_candidates.py",
+        "sha256": "cc068d3c8c8848b99b8d80061419a1ec219b91e52e9ccafbbdf08fff9bfe66b6",
+        "lf_sha256": "2d3773eb210e63888454627066844450872c4ae7096bf2eeaa1a400b3c1a4f8f",
+        "bytes": 7048,
+        "last_path_commit": "9b7d5ef76da9b36e7ace392d21e468d5c91234a6",
+        "source_utf8": "\"\"\"Deterministic pilot hypotheses from public data, never campaign effects.\n\nSwitchers provide no exposure denominator. Median historical change is shrunk\ntowards zero; package fit adjusts exploration priority, not that estimate.\n\"\"\"\nfrom pathlib import Path\n\nimport numpy as np\nimport pandas as pd\n\nHISTORY_COLUMNS = [\"tariff_plan_code_from\", \"tariff_plan_code_to\",\n                   \"AVG_ARPU_PREV_3M\", \"AVG_ARPU_NEXT_3M\"]\nSEGMENTS = {\"arpu_segment\": {\"LOW\", \"MID\", \"HIGH\"},\n            \"data_segment\": {\"NON_USER\", \"LITE\", \"HEAVY\"},\n            \"call_segment\": {\"LOW\", \"MEDIUM\", \"HIGH\"}}\n\n\ndef _history(path):\n    \"\"\"Missing/empty history is supported; malformed schemas remain visible.\"\"\"\n    try:\n        history = pd.read_csv(path)\n    except (FileNotFoundError, pd.errors.EmptyDataError):\n        history = pd.DataFrame(columns=HISTORY_COLUMNS)\n    missing = set(HISTORY_COLUMNS) - set(history.columns)\n    if missing:\n        raise ValueError(f\"History missing columns: {sorted(missing)}\")\n    # Only remove provably identical event records when event identifiers exist.\n    # Equal ARPU values alone are not evidence of a duplicate observation.\n    history = history.drop_duplicates().copy() if {\"ID_NUMBER\", \"TIME_KEY\"} <= set(history.columns) else history.copy()\n    before = pd.to_numeric(history.AVG_ARPU_PREV_3M, errors=\"coerce\")\n    after = pd.to_numeric(history.AVG_ARPU_NEXT_3M, errors=\"coerce\")\n    valid = np.isfinite(before) & np.isfinite(after) & (before >= 100) & (after >= 0)\n    history = history.loc[valid].copy()\n    before, after = before.loc[valid], after.loc[valid]\n    # Baseline's left-closed bins: 1000 is MID, 5000 is HIGH.\n    history[\"arpu_segment\"] = pd.cut(before, [-np.inf, 1000, 5000, np.inf],\n                                     labels=[\"LOW\", \"MID\", \"HIGH\"], right=False)\n    history[\"change\"] = (after / before - 1).clip(-1, 3)\n    return history.groupby(\n        [\"tariff_plan_code_from\", \"arpu_segment\", \"tariff_plan_code_to\"], observed=True\n    )[\"change\"].agg([\"median\", \"count\"])\n\n\ndef _cells(group, filters, dimensions=(\"data_segment\", \"call_segment\")):\n    \"\"\"Disjoint leaves only: never truncate a segment or fabricate ID filters.\"\"\"\n    if len(group) < 10:\n        return\n    if len(group) <= 5000:\n        yield filters, group\n        return\n    if not dimensions:\n        return  # Identical allowed filters cannot express a smaller audience.\n    column, *rest = dimensions\n    if column not in group:\n        yield from _cells(group, filters, rest)\n        return\n    for value, part in group.groupby(column, observed=True, sort=True):\n        if value in SEGMENTS[column]:\n            yield from _cells(part, {**filters, \"filter_\" + column: str(value)}, rest)\n\n\ndef _median(group, column):\n    if column not in group:\n        return None\n    values = pd.to_numeric(group[column], errors=\"coerce\")\n    values = values[np.isfinite(values) & (values >= 0)]\n    return float(values.median()) if len(values) else None\n\n\ndef _number(value):\n    value = pd.to_numeric(value, errors=\"coerce\")\n    return float(value) if pd.notna(value) and np.isfinite(value) and value >= 0 else None\n\n\ndef _package_fit(group, tariff):\n    \"\"\"Bounded heuristic [0,1], not a conversion probability.\n\n    DATA_VOLUME follows the dictionary. LTE is not added: described as a subset,\n    it nevertheless often exceeds total data in this synthetic package.\n    Voice allowances are alternatives: use their maximum, not their sum.\n    \"\"\"\n    terms = []\n    voice = [_number(tariff.get(c)) for c in\n             (\"Min_another_operator_in_PKG\", \"Min_another_operator_and_city_in_PKG\")]\n    voice = [v for v in voice if v is not None]\n    for usage, allowance in (\n        (_median(group, \"DATA_VOLUME\"), _number(tariff.get(\"Data_in_PKG\"))),\n        (_median(group, \"OUT_LOC_OFFNET_MIN\"), max(voice) if voice else None),\n    ):\n        if usage is not None and usage > 0 and allowance is not None:\n            terms.append(min(allowance / usage, 1.0))\n    price = _number(tariff.get(\"price_tariff\"))\n    arpu = _median(group, \"predicted_arpu\")\n    if arpu is not None and arpu > 0 and price is not None:\n        terms.append(min(arpu / price, 1.0) if price else 1.0)\n    return float(np.mean(terms)) if terms else 0.5\n\n\ndef build_candidates(profile, tariffs, history_path=None) -> list[dict]:\n    \"\"\"Contract v1; two rounds across disjoint cells, strongest option first.\n\n    No-history options carry a zero prior and a small exploration priority.\n    Missing optional usage/package columns are neutral. Invalid required rows\n    are not silently removed inside an otherwise selectable campaign.\n    \"\"\"\n    path = Path(history_path) if history_path is not None else Path(__file__).resolve().parents[1] / \"data/change_tariff.csv\"\n    prior = _history(path)\n    if tariffs.tariff_plan_code.dropna().duplicated().any():\n        raise ValueError(\"tariff_plan_code must be unique\")\n    catalogue = tariffs.dropna(subset=[\"tariff_plan_code\"]).set_index(\"tariff_plan_code\")\n    known = sorted(catalogue.index.astype(str))\n    cells = []\n    for (current, segment), group in profile.groupby([\"current_tariff\", \"arpu_segment\"], observed=True, sort=True):\n        if current not in known or segment not in SEGMENTS[\"arpu_segment\"]:\n            continue\n        group = group.sort_values(\"ID_NUMBER\") if \"ID_NUMBER\" in group else group\n        filters = {\"filter_current_tariff\": str(current), \"filter_arpu_segment\": str(segment)}\n        for filters, part in _cells(group, filters):\n            values = pd.to_numeric(part.predicted_arpu, errors=\"coerce\")\n            if not (np.isfinite(values) & (values >= 0)).all():\n                continue\n            value = float(values.sum())\n            options = []\n            for target in known:\n                if target == current:\n                    continue\n                key = (current, segment, target)\n                median, support = (float(prior.loc[key, \"median\"]), int(prior.loc[key, \"count\"])) if key in prior.index else (0.0, 0)\n                shrunk = median * support / (support + 20)\n                fit = _package_fit(part, catalogue.loc[target])\n                # This no-history floor is exploration, never a lift estimate.\n                signal = max(shrunk, 0.0) if support else 0.01\n                options.append({**filters, \"target_tariff\": target,\n                                \"prior_lift_ratio\": shrunk, \"history_support\": support,\n                                \"priority\": signal * value * (0.8 + 0.2 * fit)})\n            options.sort(key=lambda c: (-c[\"priority\"], -c[\"history_support\"], c[\"target_tariff\"]))\n            if options:\n                cells.append(options)\n    cells.sort(key=lambda opts: (-opts[0][\"priority\"], tuple(sorted(\n        (k, v) for k, v in opts[0].items() if k.startswith(\"filter_\")))))\n    return [options[rank] for rank in range(2) for options in cells if len(options) > rank]\n"
+      },
+      "research/provenance.py": {
+        "path": "research/provenance.py",
+        "sha256": "d4b50c29bc2dfd4990134ea9bd0d9b73795371aa177403b0cfef447132b5676c",
+        "lf_sha256": "a19501ec3e05b2c5715dcaa8a32a006b3d9b8c5d13b0e5c943735f77fd9fd308",
+        "bytes": 2509,
+        "last_path_commit": "be8ee4090540684d292d0cf102ac1140543df803",
+        "source_utf8": "\"\"\"Read-only provenance for research experiments; no environment introspection.\"\"\"\nimport hashlib\nimport json\nfrom pathlib import Path\nimport platform\nimport subprocess\nimport sys\n\nimport numpy as np\nimport pandas as pd\n\nROOT = Path(__file__).resolve().parents[1]\n\n\ndef sha256(data):\n    return hashlib.sha256(data).hexdigest()\n\n\ndef git(*args):\n    return subprocess.check_output(\n        ['git', '-c', f'safe.directory={ROOT.as_posix()}', *args], cwd=ROOT)\n\n\ndef fingerprint(path):\n    path = Path(path)\n    raw = path.read_bytes()\n    return {'sha256': sha256(raw), 'lf_sha256': sha256(raw.replace(b'\\r\\n', b'\\n')),\n            'bytes': len(raw)}\n\n\ndef source_record(path):\n    path = Path(path)\n    relative = path.relative_to(ROOT).as_posix()\n    return {'path': relative, **fingerprint(path),\n            'last_path_commit': git('log', '-1', '--format=%H', '--', relative).decode().strip() or None,\n            'source_utf8': path.read_text(encoding='utf-8-sig')}\n\n\ndef manifest(source_paths, extra_paths=()):\n    # Hashing organizer bytes is only provenance, never reading model parameters.\n    paths = sorted(set([*ROOT.glob('*.csv'), *ROOT.glob('data/*.csv'),\n                        *(ROOT / p for p in ('environment.py', 'mock_environment.py', 'scoring_core.py', 'local_eval.py', 'requirements.txt')),\n                        *(Path(p) for p in extra_paths)]))\n    return {'git_head': git('rev-parse', 'HEAD').decode().strip(),\n            'git_status': git('status', '--porcelain').decode(),\n            'sources': {str(Path(p).relative_to(ROOT).as_posix()): source_record(p) for p in source_paths},\n            'inputs': {p.relative_to(ROOT).as_posix(): fingerprint(p) for p in paths},\n            'runtime': {'python': sys.version, 'implementation': platform.python_implementation(),\n                        'platform': platform.platform(), 'numpy': np.__version__, 'pandas': pd.__version__}}\n\n\ndef verify_unchanged(evidence):\n    for section in ('sources', 'inputs'):\n        for name, record in evidence[section].items():\n            if fingerprint(ROOT / name)['sha256'] != record['sha256']:\n                raise RuntimeError(f'Experiment input changed during run: {name}')\n\n\ndef write_new_json(path, value):\n    \"\"\"Exclusive create: historical outputs can never be silently overwritten.\"\"\"\n    path = Path(path)\n    payload = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + '\\n'\n    with path.open('x', encoding='utf-8', newline='\\n') as out:\n        out.write(payload)\n"
+      },
+      "tests/test_research_benchmark.py": {
+        "path": "tests/test_research_benchmark.py",
+        "sha256": "50597dfa4159496138ec5c521674c6596c5aa1cff5287aa3ae3dacac8722e886",
+        "lf_sha256": "a798648294beae86ef475732e6134fddcf58310b503cdb87554daaf197257166",
+        "bytes": 6552,
+        "last_path_commit": "be8ee4090540684d292d0cf102ac1140543df803",
+        "source_utf8": "\"\"\"Compare generators under ONE current Agent/planner, not whole historical agents.\n\nUse --plan to supply preregistered seeds and --output for a NEW evidence file.\nThe original generator is loaded from the plan's actual Git ref; no fixed label.\nHistorical research/mock_comparison.json is intentionally left untouched.\n\"\"\"\nimport argparse\nfrom datetime import datetime, timezone\nimport json\nfrom pathlib import Path\nimport statistics\nimport sys\nimport time\nimport types\nfrom unittest.mock import patch\n\nROOT = Path(__file__).resolve().parents[1]\nsys.path.insert(0, str(ROOT))\nfrom research.provenance import git, manifest, sha256, verify_unchanged, write_new_json\n\nVARIANTS = ('original', 'current', 'median')\nMETRICS = ('net_arpu_gain', 'total_cost', 'total_contacts', 'n_campaigns', 'n_pilots')\n\n\ndef load_builder(source, filename):\n    module = types.ModuleType('experiment_candidates')\n    module.__file__ = str(filename)\n    exec(compile(source, str(filename), 'exec'), module.__dict__)\n    def builder(profile, tariffs):\n        return module.build_candidates(profile, tariffs, ROOT / 'data/change_tariff.csv')\n    return builder\n\n\ndef describe(values):\n    return {'mean': statistics.mean(values), 'median': statistics.median(values),\n            'min': min(values), 'max': max(values)} if values else None\n\n\ndef summarize(rows, seed_groups):\n    summary = {}\n    for group, seeds in seed_groups.items():\n        selected = [r for r in rows if r['seed'] in seeds]\n        by_variant = {}\n        for name in VARIANTS:\n            good = [r['variants'][name] for r in selected if 'error' not in r['variants'][name]]\n            by_variant[name] = {'completed': len(good), 'failed': len(selected) - len(good),\n                                **{key: describe([r[key] for r in good]) for key in (*METRICS, 'seconds')}}\n        comparisons = {}\n        for left, right in (('current', 'original'), ('median', 'original'), ('current', 'median')):\n            paired = [r for r in selected if all('error' not in r['variants'][v] for v in (left, right))]\n            deltas = [r['variants'][left]['net_arpu_gain'] - r['variants'][right]['net_arpu_gain'] for r in paired]\n            comparisons[f'{left}_minus_{right}'] = {\n                'paired_count': len(paired), 'delta_net': describe(deltas),\n                'improvements': sum(d > 1e-9 for d in deltas), 'worsenings': sum(d < -1e-9 for d in deltas),\n                'ties': sum(abs(d) <= 1e-9 for d in deltas),\n                'worse_seeds': [r['seed'] for r, d in zip(paired, deltas) if d < -1e-9]}\n        summary[group] = {'seeds': seeds, 'variants': by_variant, 'paired': comparisons}\n    return summary\n\n\ndef benchmark(plan_path):\n    plan_path = Path(plan_path).resolve()\n    plan = json.loads(plan_path.read_text(encoding='utf-8-sig'))\n    if plan['comparison_kind'] != 'candidate_generators_fixed_planner':\n        raise ValueError('This runner only compares generators with a fixed planner; full-agent comparison requires isolated complete checkouts.')\n    seeds = [seed for group in plan['seed_groups'].values() for seed in group]\n    if len(seeds) != len(set(seeds)):\n        raise ValueError('Seed groups must not overlap')\n    if plan['variants'] != list(VARIANTS):\n        raise ValueError('Expected original, current and median variants')\n    ref = git('rev-parse', plan['original_ref'] + '^{commit}').decode().strip()\n    original = git('show', f\"{ref}:{plan['original_path']}\")\n    source_paths = [ROOT / p for p in ('agent.py', 'strategy/planner.py', 'research/candidates.py',\n                                      'research/median_candidates.py', 'research/provenance.py',\n                                      'tests/test_research_benchmark.py')]\n    evidence = manifest(source_paths, [plan_path])\n    evidence['original_generator'] = {'resolved_commit': ref, 'path': plan['original_path'],\n                                       'git_blob_oid': git('rev-parse', f\"{ref}:{plan['original_path']}\").decode().strip(),\n                                       'sha256': sha256(original), 'source_utf8': original.decode('utf-8')}\n    sources = {'original': original.decode('utf-8'),\n               'current': evidence['sources']['research/candidates.py']['source_utf8'],\n               'median': evidence['sources']['research/median_candidates.py']['source_utf8']}\n    builders = {name: load_builder(source, ROOT / 'research' / f'{name}_snapshot.py') for name, source in sources.items()}\n    # Public evaluator only; no model effects are inspected or fed to research.\n    from agent import Agent\n    from local_eval import evaluate_agent\n    rows = []\n    started_at = datetime.now(timezone.utc).isoformat()\n    for index, seed in enumerate(seeds):\n        order = VARIANTS[index % 3:] + VARIANTS[:index % 3]\n        row = {'seed': seed, 'run_order': list(order), 'variants': {}}\n        for name in order:\n            started = time.perf_counter()\n            try:\n                with patch('strategy.planner.build_candidates', builders[name]):\n                    metrics = evaluate_agent(Agent(), seed=seed, verbose=False)\n                result = {key: metrics[key] for key in METRICS}\n            except Exception as exc:\n                result = {'error': f'{type(exc).__name__}: {exc}'}\n            result['seconds'] = time.perf_counter() - started\n            row['variants'][name] = result\n        rows.append(row)\n        print(f'Completed seed {seed} ({index + 1}/{len(seeds)})', flush=True)\n    verify_unchanged(evidence)\n    return {'schema_version': 2, 'mode': 'mock', 'comparison_kind': plan['comparison_kind'],\n            'full_agent_comparison': False, 'started_at_utc': started_at, 'plan': plan,\n            'seed_list': seeds, 'provenance': evidence, 'rows': rows,\n            'summary': summarize(rows, plan['seed_groups']),\n            'limits': ['Same seed need not produce identical pilot samples after actions diverge.',\n                       'Wall time is descriptive, sequential rotating order, no process isolation.',\n                       'Historical full-agent numbers cannot be reproduced by swapping only a generator.']}\n\n\nif __name__ == '__main__':\n    parser = argparse.ArgumentParser(description=__doc__)\n    parser.add_argument('--plan', type=Path, required=True)\n    parser.add_argument('--output', type=Path, required=True)\n    args = parser.parse_args()\n    if args.output.exists():\n        parser.error('Output already exists; choose a new path. Historical evidence is immutable.')\n    write_new_json(args.output, benchmark(args.plan))\n"
+      }
+    },
+    "inputs": {
+      "customer_profile.csv": {
+        "sha256": "e377baa2553a790f030a1d3411b3b5c5ca6316ccc7485badc9b08afa6da17d3f",
+        "lf_sha256": "a85e9badf4cb51b1ba8c43a868498b6fa8075509f3cd8e19ef72e1c25a6dc815",
+        "bytes": 6193575
+      },
+      "data/arpu_monthly.csv": {
+        "sha256": "e72c0fd5a59df245a4972ccd83d0139ef5c81273708cd14fe75639d2d08558fa",
+        "lf_sha256": "83d96b61c38a8bf7cdf5f07bc4f17f7f2f39885559c496fc28c266cef8ad3c4a",
+        "bytes": 1952460
+      },
+      "data/change_tariff.csv": {
+        "sha256": "655d6af287093e681e4057ce9db438d4953598b5340951d95b891ed0cb6ad257",
+        "lf_sha256": "c52d7dad11fccc7425afe6d36a44a1fa03c8cc148be2039ce264d0c5c100f230",
+        "bytes": 923398
+      },
+      "data/dict_tariff.csv": {
+        "sha256": "74ef4242c9a6c46bd391d78251d6e3b9a408d913590c6efad7aa3957018be74c",
+        "lf_sha256": "a34d81dacffbb937ddd542e87d421afcea4842379acfbad55b8d59bdf710f4be",
+        "bytes": 690
+      },
+      "data/traffic.csv": {
+        "sha256": "51bb265b0c561564899b0718b5598d662eeea1ad00e333e001433dcd196a0857",
+        "lf_sha256": "cb0a3f8827d8be6989b65dc5bf0b7c901047cf64e485f4ee74e3c24787ee846c",
+        "bytes": 13153861
+      },
+      "environment.py": {
+        "sha256": "6385136a79814624449843930c55305b397a2d3d30c4d8c280e7b2b08bf033fc",
+        "lf_sha256": "8003a305ea9a560270ee875b2c48a6b1fbf8198d9c6c680e4827542532bb3dd1",
+        "bytes": 11975
+      },
+      "feature_dictionary.csv": {
+        "sha256": "7cf844d19cceb29f6796d49b047296b2643a35e7345390a637320c33553fb5fd",
+        "lf_sha256": "80bb9dddea7a054c3ef6569805013efbe313c7918a9d72d06203d1534e8f5c21",
+        "bytes": 4331
+      },
+      "local_eval.py": {
+        "sha256": "6af581b2c626c75adf72afd8cf965b883753518ef6b75df3844571d97a508e02",
+        "lf_sha256": "16c3b96b00487c02ee470a23e6b4554c220a5ea817b1ea46b75cfac158dd5b47",
+        "bytes": 4990
+      },
+      "mock_environment.py": {
+        "sha256": "9c7515361270ebef8cec08f3a78ed0d288532a14d51e08eb6455de71994f9111",
+        "lf_sha256": "e1e4a480126d2896e89a868194b3ed7f7ee48d7c5fc2c8a2491970d8e231f506",
+        "bytes": 4667
+      },
+      "requirements.txt": {
+        "sha256": "65a20d14b78c0b1771ac5ef28cb6e16aeeb992784bf314eed51527dce0275e40",
+        "lf_sha256": "0846458bcf335b51ca600e1b641845c8036206578678988f79c8e2181a609566",
+        "bytes": 29
+      },
+      "research/experiments/stability_6dad30c/plan.json": {
+        "sha256": "8777449be3ac9336899f599e500516de7660ce96b1fab1a932ddc165f612c515",
+        "lf_sha256": "c3cfbc36322daaf827ee28a472a177ca7f9c2fd746b244de258e6049e046bc68",
+        "bytes": 1505
+      },
+      "scoring_core.py": {
+        "sha256": "74e2316c2329872dd7c93165a4b47e6c583ecdb9af853671c14a8a11cb701cf7",
+        "lf_sha256": "ba68595daebb12418000fa4d59ffbbf156df045f589bdbb789f3531145c58327",
+        "bytes": 18178
+      },
+      "submission.csv": {
+        "sha256": "a8a2b38c60aff978b55f6b9bdafb05181e614d9f7fe151ed25c0aefdbd05c892",
+        "lf_sha256": "386245e3037b13ac23ad2271e407f88e2e6954c05f37d00bff753b8888b99e8e",
+        "bytes": 537
+      },
+      "tariff_dictionary.csv": {
+        "sha256": "f28fdc513c562b86a86849c243340523b0f2bb450a6a74a999322aeab505f584",
+        "lf_sha256": "d3e6588f5d8e8e51202b4a77b2d4c0243080965a82d8e1d9411149220dd9df1c",
+        "bytes": 4193
+      }
+    },
+    "runtime": {
+      "python": "3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]",
+      "implementation": "CPython",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "numpy": "2.5.3",
+      "pandas": "2.3.3"
+    },
+    "original_generator": {
+      "resolved_commit": "58c794b5e7097466b698dd1e7ae209b6a226a524",
+      "path": "research/candidates.py",
+      "git_blob_oid": "b1276babb3d8e3f990dcc19e67bef8bac458deae",
+      "sha256": "ff12c9a0c4837a8e760a50799422136b8289cbe85806c2f20c3bcd2ea7063393",
+      "source_utf8": "\"\"\"Historical observations rank hypotheses; they do not reveal hidden effects.\n\nThe history contains switchers only. Its counts are not campaign conversion\nrates. Priors here are only used to decide which pilots to run.\n\"\"\"\nfrom pathlib import Path\nimport pandas as pd\n\n\ndef build_candidates(profile, tariffs, history_path=None) -> list[dict]:\n    path = Path(history_path) if history_path else Path(__file__).resolve().parents[1] / \"data/change_tariff.csv\"\n    history = pd.read_csv(path)\n    history = history[history.AVG_ARPU_PREV_3M >= 100].copy()\n    history[\"arpu_segment\"] = pd.cut(\n        history.AVG_ARPU_PREV_3M, [-float(\"inf\"), 1000, 5000, float(\"inf\")],\n        labels=[\"LOW\", \"MID\", \"HIGH\"], right=False,\n    )\n    history[\"change\"] = (history.AVG_ARPU_NEXT_3M / history.AVG_ARPU_PREV_3M - 1).clip(-1, 3)\n    prior = history.groupby(\n        [\"tariff_plan_code_from\", \"arpu_segment\", \"tariff_plan_code_to\"], observed=True\n    )[\"change\"].agg([\"mean\", \"count\"])\n    known = sorted(tariffs.tariff_plan_code.astype(str))\n    cells = []\n    for (current, segment), group in profile.groupby([\"current_tariff\", \"arpu_segment\"], observed=True):\n        # Laptop 2 can later split larger cells using supported filters.\n        if len(group) < 10 or len(group) > 5000:\n            continue\n        options = []\n        for target in known:\n            if target == current:\n                continue\n            key = (current, segment, target)\n            mean, support = (float(prior.loc[key, \"mean\"]), int(prior.loc[key, \"count\"])) if key in prior.index else (0.0, 0)\n            shrunk = mean * support / (support + 20)\n            options.append({\n                \"filter_current_tariff\": str(current), \"filter_arpu_segment\": str(segment),\n                \"target_tariff\": target, \"prior_lift_ratio\": shrunk, \"history_support\": support,\n                \"priority\": max(shrunk, 0.0) * float(group.predicted_arpu.sum()),\n            })\n        options.sort(key=lambda c: (-c[\"priority\"], -c[\"history_support\"], c[\"target_tariff\"]))\n        if options:\n            cells.append(options)\n    cells.sort(key=lambda options: (-options[0][\"priority\"], options[0][\"filter_current_tariff\"], options[0][\"filter_arpu_segment\"]))\n    return [options[rank] for rank in range(2) for options in cells if len(options) > rank]\n"
+    }
+  },
+  "rows": [
+    {
+      "seed": 0,
+      "run_order": [
+        "original",
+        "current",
+        "median"
+      ],
+      "variants": {
+        "original": {
+          "net_arpu_gain": 4259261.640406043,
+          "total_cost": 95070.0,
+          "total_contacts": 13087,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6646690999623388
+        },
+        "current": {
+          "net_arpu_gain": 4231176.04593592,
+          "total_cost": 55480.0,
+          "total_contacts": 8711,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.5917654000222683
+        },
+        "median": {
+          "net_arpu_gain": 3733616.685712883,
+          "total_cost": 41444.0,
+          "total_contacts": 9521,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.3840783999767154
+        }
+      }
+    },
+    {
+      "seed": 1,
+      "run_order": [
+        "current",
+        "median",
+        "original"
+      ],
+      "variants": {
+        "current": {
+          "net_arpu_gain": 4062203.573906976,
+          "total_cost": 97742.0,
+          "total_contacts": 13475,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.5696157000493258
+        },
+        "median": {
+          "net_arpu_gain": 4167977.9626856707,
+          "total_cost": 76622.0,
+          "total_contacts": 9915,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.375841600005515
+        },
+        "original": {
+          "net_arpu_gain": 3951691.585947023,
+          "total_cost": 92520.0,
+          "total_contacts": 14470,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6539928999263793
+        }
+      }
+    },
+    {
+      "seed": 2,
+      "run_order": [
+        "median",
+        "original",
+        "current"
+      ],
+      "variants": {
+        "median": {
+          "net_arpu_gain": 3204629.227810979,
+          "total_cost": 48452.0,
+          "total_contacts": 10284,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.40148710005451
+        },
+        "original": {
+          "net_arpu_gain": 3400918.5828623534,
+          "total_cost": 38748.0,
+          "total_contacts": 9994,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6597484999801964
+        },
+        "current": {
+          "net_arpu_gain": 3809398.1330485335,
+          "total_cost": 66382.0,
+          "total_contacts": 9001,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.5669554999331012
+        }
+      }
+    },
+    {
+      "seed": 3,
+      "run_order": [
+        "original",
+        "current",
+        "median"
+      ],
+      "variants": {
+        "original": {
+          "net_arpu_gain": 3387478.296720674,
+          "total_cost": 61196.0,
+          "total_contacts": 11367,
+          "n_campaigns": 29,
+          "n_pilots": 20,
+          "seconds": 0.6417932999320328
+        },
+        "current": {
+          "net_arpu_gain": 3711850.695510991,
+          "total_cost": 56234.0,
+          "total_contacts": 8999,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.5775777000235394
+        },
+        "median": {
+          "net_arpu_gain": 3602689.4999700696,
+          "total_cost": 33404.0,
+          "total_contacts": 8533,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.408640000037849
+        }
+      }
+    },
+    {
+      "seed": 4,
+      "run_order": [
+        "current",
+        "median",
+        "original"
+      ],
+      "variants": {
+        "current": {
+          "net_arpu_gain": 3660243.3351847604,
+          "total_cost": 83036.0,
+          "total_contacts": 13067,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.572102600010112
+        },
+        "median": {
+          "net_arpu_gain": 4266130.777139746,
+          "total_cost": 83582.0,
+          "total_contacts": 9935,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4069343000883237
+        },
+        "original": {
+          "net_arpu_gain": 3774721.435885855,
+          "total_cost": 66252.0,
+          "total_contacts": 13399,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6529548999387771
+        }
+      }
+    },
+    {
+      "seed": 5,
+      "run_order": [
+        "median",
+        "original",
+        "current"
+      ],
+      "variants": {
+        "median": {
+          "net_arpu_gain": 3614557.181228698,
+          "total_cost": 43400.0,
+          "total_contacts": 9021,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4019249000120908
+        },
+        "original": {
+          "net_arpu_gain": 3618474.1321608843,
+          "total_cost": 59302.0,
+          "total_contacts": 8384,
+          "n_campaigns": 29,
+          "n_pilots": 20,
+          "seconds": 0.6580079999985173
+        },
+        "current": {
+          "net_arpu_gain": 4134661.3325124606,
+          "total_cost": 74826.0,
+          "total_contacts": 7666,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.5886961000505835
+        }
+      }
+    },
+    {
+      "seed": 6,
+      "run_order": [
+        "original",
+        "current",
+        "median"
+      ],
+      "variants": {
+        "original": {
+          "net_arpu_gain": 3149682.303019287,
+          "total_cost": 66292.0,
+          "total_contacts": 13478,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6642495000269264
+        },
+        "current": {
+          "net_arpu_gain": 3446617.538906658,
+          "total_cost": 70276.0,
+          "total_contacts": 12130,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.5828408000525087
+        },
+        "median": {
+          "net_arpu_gain": 2800881.52529926,
+          "total_cost": 84934.0,
+          "total_contacts": 8446,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4000356999458745
+        }
+      }
+    },
+    {
+      "seed": 7,
+      "run_order": [
+        "current",
+        "median",
+        "original"
+      ],
+      "variants": {
+        "current": {
+          "net_arpu_gain": 3833980.5739618265,
+          "total_cost": 73084.0,
+          "total_contacts": 12832,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.570907499990426
+        },
+        "median": {
+          "net_arpu_gain": 2849359.217416152,
+          "total_cost": 49352.0,
+          "total_contacts": 10295,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4047018999699503
+        },
+        "original": {
+          "net_arpu_gain": 4013888.518862786,
+          "total_cost": 74904.0,
+          "total_contacts": 13207,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6764127999776974
+        }
+      }
+    },
+    {
+      "seed": 8,
+      "run_order": [
+        "median",
+        "original",
+        "current"
+      ],
+      "variants": {
+        "median": {
+          "net_arpu_gain": 3417886.1287492597,
+          "total_cost": 55030.0,
+          "total_contacts": 9935,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.3936222000047565
+        },
+        "original": {
+          "net_arpu_gain": 2778041.9811175438,
+          "total_cost": 34588.0,
+          "total_contacts": 8007,
+          "n_campaigns": 29,
+          "n_pilots": 20,
+          "seconds": 0.6518471000017598
+        },
+        "current": {
+          "net_arpu_gain": 2934502.2029891554,
+          "total_cost": 37404.0,
+          "total_contacts": 8711,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.59597769996617
+        }
+      }
+    },
+    {
+      "seed": 9,
+      "run_order": [
+        "original",
+        "current",
+        "median"
+      ],
+      "variants": {
+        "original": {
+          "net_arpu_gain": 3711746.724543716,
+          "total_cost": 56572.0,
+          "total_contacts": 13663,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6774322000565007
+        },
+        "current": {
+          "net_arpu_gain": 3145178.196574881,
+          "total_cost": 31468.0,
+          "total_contacts": 13135,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.585975999943912
+        },
+        "median": {
+          "net_arpu_gain": 2282692.100670175,
+          "total_cost": 61936.0,
+          "total_contacts": 10045,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4056501999730244
+        }
+      }
+    },
+    {
+      "seed": 30,
+      "run_order": [
+        "current",
+        "median",
+        "original"
+      ],
+      "variants": {
+        "current": {
+          "net_arpu_gain": 3976177.20728378,
+          "total_cost": 40224.0,
+          "total_contacts": 9136,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.621950100059621
+        },
+        "median": {
+          "net_arpu_gain": 2574479.75712589,
+          "total_cost": 53440.0,
+          "total_contacts": 10306,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.3937031999230385
+        },
+        "original": {
+          "net_arpu_gain": 3880358.346598454,
+          "total_cost": 42696.0,
+          "total_contacts": 10114,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6827939000213519
+        }
+      }
+    },
+    {
+      "seed": 31,
+      "run_order": [
+        "median",
+        "original",
+        "current"
+      ],
+      "variants": {
+        "median": {
+          "net_arpu_gain": 3257427.358888166,
+          "total_cost": 72312.0,
+          "total_contacts": 10414,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.423911300022155
+        },
+        "original": {
+          "net_arpu_gain": 3878385.944464726,
+          "total_cost": 45356.0,
+          "total_contacts": 10499,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6510939999716356
+        },
+        "current": {
+          "net_arpu_gain": 3756492.8944422654,
+          "total_cost": 36612.0,
+          "total_contacts": 9255,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.5742559999926016
+        }
+      }
+    },
+    {
+      "seed": 32,
+      "run_order": [
+        "original",
+        "current",
+        "median"
+      ],
+      "variants": {
+        "original": {
+          "net_arpu_gain": 3065425.4874501415,
+          "total_cost": 76004.0,
+          "total_contacts": 14789,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6541804999578744
+        },
+        "current": {
+          "net_arpu_gain": 3048189.5646008137,
+          "total_cost": 84528.0,
+          "total_contacts": 12832,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.585176800028421
+        },
+        "median": {
+          "net_arpu_gain": 1774321.447720696,
+          "total_cost": 48560.0,
+          "total_contacts": 9474,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.3924615000141785
+        }
+      }
+    },
+    {
+      "seed": 33,
+      "run_order": [
+        "current",
+        "median",
+        "original"
+      ],
+      "variants": {
+        "current": {
+          "net_arpu_gain": 4050520.5977294194,
+          "total_cost": 49814.0,
+          "total_contacts": 8631,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.6020209999987856
+        },
+        "median": {
+          "net_arpu_gain": 3840644.9594007414,
+          "total_cost": 98572.0,
+          "total_contacts": 9848,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.3906627999385819
+        },
+        "original": {
+          "net_arpu_gain": 3636853.2263406795,
+          "total_cost": 63906.0,
+          "total_contacts": 9970,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6495458000572398
+        }
+      }
+    },
+    {
+      "seed": 34,
+      "run_order": [
+        "median",
+        "original",
+        "current"
+      ],
+      "variants": {
+        "median": {
+          "net_arpu_gain": 4019308.6991580613,
+          "total_cost": 61416.0,
+          "total_contacts": 9915,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.428674399969168
+        },
+        "original": {
+          "net_arpu_gain": 2769509.2877677847,
+          "total_cost": 54200.0,
+          "total_contacts": 14350,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6571215000003576
+        },
+        "current": {
+          "net_arpu_gain": 3137103.106311675,
+          "total_cost": 52052.0,
+          "total_contacts": 13475,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.5788901000050828
+        }
+      }
+    },
+    {
+      "seed": 35,
+      "run_order": [
+        "original",
+        "current",
+        "median"
+      ],
+      "variants": {
+        "original": {
+          "net_arpu_gain": 3757574.2973975325,
+          "total_cost": 37928.0,
+          "total_contacts": 10362,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6455726999556646
+        },
+        "current": {
+          "net_arpu_gain": 3877403.316190673,
+          "total_cost": 41936.0,
+          "total_contacts": 8609,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.570566000067629
+        },
+        "median": {
+          "net_arpu_gain": 3711875.929499409,
+          "total_cost": 51860.0,
+          "total_contacts": 9833,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.3852644000435248
+        }
+      }
+    },
+    {
+      "seed": 36,
+      "run_order": [
+        "current",
+        "median",
+        "original"
+      ],
+      "variants": {
+        "current": {
+          "net_arpu_gain": 4350141.195473812,
+          "total_cost": 84746.0,
+          "total_contacts": 7971,
+          "n_campaigns": 29,
+          "n_pilots": 20,
+          "seconds": 1.5474128999048844
+        },
+        "median": {
+          "net_arpu_gain": 4017096.904880482,
+          "total_cost": 66966.0,
+          "total_contacts": 10300,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4146943000378087
+        },
+        "original": {
+          "net_arpu_gain": 4031865.1784047075,
+          "total_cost": 76674.0,
+          "total_contacts": 13087,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6853488000342622
+        }
+      }
+    },
+    {
+      "seed": 37,
+      "run_order": [
+        "median",
+        "original",
+        "current"
+      ],
+      "variants": {
+        "median": {
+          "net_arpu_gain": 3097369.795332664,
+          "total_cost": 29932.0,
+          "total_contacts": 6923,
+          "n_campaigns": 29,
+          "n_pilots": 20,
+          "seconds": 1.3601185999577865
+        },
+        "original": {
+          "net_arpu_gain": 2926050.8987163734,
+          "total_cost": 70384.0,
+          "total_contacts": 14547,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.632971000042744
+        },
+        "current": {
+          "net_arpu_gain": 3277242.704376991,
+          "total_cost": 64380.0,
+          "total_contacts": 13115,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.5649310998851433
+        }
+      }
+    },
+    {
+      "seed": 38,
+      "run_order": [
+        "original",
+        "current",
+        "median"
+      ],
+      "variants": {
+        "original": {
+          "net_arpu_gain": 3797569.4518009527,
+          "total_cost": 59732.0,
+          "total_contacts": 14453,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6874653999693692
+        },
+        "current": {
+          "net_arpu_gain": 3646549.9289969564,
+          "total_cost": 54348.0,
+          "total_contacts": 13107,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.5762577999848872
+        },
+        "median": {
+          "net_arpu_gain": 3879574.2319898633,
+          "total_cost": 65526.0,
+          "total_contacts": 10423,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4173551000421867
+        }
+      }
+    },
+    {
+      "seed": 39,
+      "run_order": [
+        "current",
+        "median",
+        "original"
+      ],
+      "variants": {
+        "current": {
+          "net_arpu_gain": 4111977.776461009,
+          "total_cost": 78474.0,
+          "total_contacts": 13177,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.591501299990341
+        },
+        "median": {
+          "net_arpu_gain": 3976563.9098750437,
+          "total_cost": 62956.0,
+          "total_contacts": 10300,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4059694999596104
+        },
+        "original": {
+          "net_arpu_gain": 4027452.2051064847,
+          "total_cost": 77314.0,
+          "total_contacts": 13167,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6668874999741092
+        }
+      }
+    },
+    {
+      "seed": 50,
+      "run_order": [
+        "median",
+        "original",
+        "current"
+      ],
+      "variants": {
+        "median": {
+          "net_arpu_gain": 4095640.5374096753,
+          "total_cost": 75046.0,
+          "total_contacts": 9521,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.3874548999592662
+        },
+        "original": {
+          "net_arpu_gain": 4041120.095378798,
+          "total_cost": 67394.0,
+          "total_contacts": 10407,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6562313000904396
+        },
+        "current": {
+          "net_arpu_gain": 3655348.785297655,
+          "total_cost": 39356.0,
+          "total_contacts": 8999,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.6205226999009028
+        }
+      }
+    },
+    {
+      "seed": 51,
+      "run_order": [
+        "original",
+        "current",
+        "median"
+      ],
+      "variants": {
+        "original": {
+          "net_arpu_gain": 3666986.695778738,
+          "total_cost": 70564.0,
+          "total_contacts": 12122,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.7688335999846458
+        },
+        "current": {
+          "net_arpu_gain": 3530929.0302372035,
+          "total_cost": 52020.0,
+          "total_contacts": 13200,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.5844147000461817
+        },
+        "median": {
+          "net_arpu_gain": 3617171.6557543585,
+          "total_cost": 49592.0,
+          "total_contacts": 9662,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.401194299920462
+        }
+      }
+    },
+    {
+      "seed": 52,
+      "run_order": [
+        "current",
+        "median",
+        "original"
+      ],
+      "variants": {
+        "current": {
+          "net_arpu_gain": 4126487.3101883437,
+          "total_cost": 74854.0,
+          "total_contacts": 12712,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.619581599952653
+        },
+        "median": {
+          "net_arpu_gain": 2844607.7347052544,
+          "total_cost": 71836.0,
+          "total_contacts": 10302,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.3975329999811947
+        },
+        "original": {
+          "net_arpu_gain": 3176313.7681160416,
+          "total_cost": 82396.0,
+          "total_contacts": 15000,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6434096000157297
+        }
+      }
+    },
+    {
+      "seed": 53,
+      "run_order": [
+        "median",
+        "original",
+        "current"
+      ],
+      "variants": {
+        "median": {
+          "net_arpu_gain": 3602534.8764733756,
+          "total_cost": 32400.0,
+          "total_contacts": 9915,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4099705000407994
+        },
+        "original": {
+          "net_arpu_gain": 3358491.1286271657,
+          "total_cost": 88846.0,
+          "total_contacts": 14383,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6594949000282213
+        },
+        "current": {
+          "net_arpu_gain": 3493722.4057211373,
+          "total_cost": 36068.0,
+          "total_contacts": 9119,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.5979366999818012
+        }
+      }
+    },
+    {
+      "seed": 54,
+      "run_order": [
+        "original",
+        "current",
+        "median"
+      ],
+      "variants": {
+        "original": {
+          "net_arpu_gain": 4236111.563964417,
+          "total_cost": 94962.0,
+          "total_contacts": 14333,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6460682998877019
+        },
+        "current": {
+          "net_arpu_gain": 3827287.9259356386,
+          "total_cost": 76594.0,
+          "total_contacts": 13067,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.5893407000694424
+        },
+        "median": {
+          "net_arpu_gain": 3735572.2220634953,
+          "total_cost": 99378.0,
+          "total_contacts": 10303,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.3614608999341726
+        }
+      }
+    },
+    {
+      "seed": 55,
+      "run_order": [
+        "current",
+        "median",
+        "original"
+      ],
+      "variants": {
+        "current": {
+          "net_arpu_gain": 3521287.288682811,
+          "total_cost": 67764.0,
+          "total_contacts": 12102,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.6362254999112338
+        },
+        "median": {
+          "net_arpu_gain": 2627424.7786533977,
+          "total_cost": 34444.0,
+          "total_contacts": 10300,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.485472899978049
+        },
+        "original": {
+          "net_arpu_gain": 3690917.277266678,
+          "total_cost": 79986.0,
+          "total_contacts": 14155,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.755467800074257
+        }
+      }
+    },
+    {
+      "seed": 56,
+      "run_order": [
+        "median",
+        "original",
+        "current"
+      ],
+      "variants": {
+        "median": {
+          "net_arpu_gain": 4272746.962998339,
+          "total_cost": 85022.0,
+          "total_contacts": 9935,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.397845899919048
+        },
+        "original": {
+          "net_arpu_gain": 2934199.785131514,
+          "total_cost": 60504.0,
+          "total_contacts": 9607,
+          "n_campaigns": 29,
+          "n_pilots": 20,
+          "seconds": 0.6247539999894798
+        },
+        "current": {
+          "net_arpu_gain": 4011662.9622148005,
+          "total_cost": 94730.0,
+          "total_contacts": 9581,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.601393899996765
+        }
+      }
+    },
+    {
+      "seed": 57,
+      "run_order": [
+        "original",
+        "current",
+        "median"
+      ],
+      "variants": {
+        "original": {
+          "net_arpu_gain": 3701686.340473501,
+          "total_cost": 61632.0,
+          "total_contacts": 14488,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6599195000017062
+        },
+        "current": {
+          "net_arpu_gain": 4017688.3332670294,
+          "total_cost": 75288.0,
+          "total_contacts": 13383,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.5912501000566408
+        },
+        "median": {
+          "net_arpu_gain": 3344087.8311741836,
+          "total_cost": 41444.0,
+          "total_contacts": 9521,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4350758999353275
+        }
+      }
+    },
+    {
+      "seed": 58,
+      "run_order": [
+        "current",
+        "median",
+        "original"
+      ],
+      "variants": {
+        "current": {
+          "net_arpu_gain": 3438034.559503928,
+          "total_cost": 50252.0,
+          "total_contacts": 8631,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.59103170002345
+        },
+        "median": {
+          "net_arpu_gain": 3674469.083404582,
+          "total_cost": 56516.0,
+          "total_contacts": 8970,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4325586999766529
+        },
+        "original": {
+          "net_arpu_gain": 3147066.160817254,
+          "total_cost": 54080.0,
+          "total_contacts": 8361,
+          "n_campaigns": 29,
+          "n_pilots": 20,
+          "seconds": 0.634932600078173
+        }
+      }
+    },
+    {
+      "seed": 59,
+      "run_order": [
+        "median",
+        "original",
+        "current"
+      ],
+      "variants": {
+        "median": {
+          "net_arpu_gain": 2781844.6622810056,
+          "total_cost": 46454.0,
+          "total_contacts": 8533,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4275878999615088
+        },
+        "original": {
+          "net_arpu_gain": 3753228.7098290734,
+          "total_cost": 61680.0,
+          "total_contacts": 14580,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6483227999415249
+        },
+        "current": {
+          "net_arpu_gain": 3411502.119519799,
+          "total_cost": 57864.0,
+          "total_contacts": 13546,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.6078010000055656
+        }
+      }
+    },
+    {
+      "seed": 60,
+      "run_order": [
+        "original",
+        "current",
+        "median"
+      ],
+      "variants": {
+        "original": {
+          "net_arpu_gain": 3761768.9218571866,
+          "total_cost": 66140.0,
+          "total_contacts": 13555,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6545993000036106
+        },
+        "current": {
+          "net_arpu_gain": 3290576.6970337257,
+          "total_cost": 53568.0,
+          "total_contacts": 12832,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.6027861000038683
+        },
+        "median": {
+          "net_arpu_gain": 3658213.9199375194,
+          "total_cost": 42468.0,
+          "total_contacts": 10439,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4395934999920428
+        }
+      }
+    },
+    {
+      "seed": 61,
+      "run_order": [
+        "current",
+        "median",
+        "original"
+      ],
+      "variants": {
+        "current": {
+          "net_arpu_gain": 3808219.923411085,
+          "total_cost": 88006.0,
+          "total_contacts": 13369,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.582536599948071
+        },
+        "median": {
+          "net_arpu_gain": 3765869.2123782304,
+          "total_cost": 53504.0,
+          "total_contacts": 10251,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.42648449994158
+        },
+        "original": {
+          "net_arpu_gain": 3618811.8470479334,
+          "total_cost": 56136.0,
+          "total_contacts": 14421,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6668470000149682
+        }
+      }
+    },
+    {
+      "seed": 62,
+      "run_order": [
+        "median",
+        "original",
+        "current"
+      ],
+      "variants": {
+        "median": {
+          "net_arpu_gain": 3482734.6656532367,
+          "total_cost": 55208.0,
+          "total_contacts": 8643,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4113332000561059
+        },
+        "original": {
+          "net_arpu_gain": 2799260.9431513785,
+          "total_cost": 57862.0,
+          "total_contacts": 8384,
+          "n_campaigns": 29,
+          "n_pilots": 20,
+          "seconds": 0.6440760999685153
+        },
+        "current": {
+          "net_arpu_gain": 3988350.2999552237,
+          "total_cost": 87766.0,
+          "total_contacts": 8726,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.60975469998084
+        }
+      }
+    },
+    {
+      "seed": 63,
+      "run_order": [
+        "original",
+        "current",
+        "median"
+      ],
+      "variants": {
+        "original": {
+          "net_arpu_gain": 3826201.686068222,
+          "total_cost": 89514.0,
+          "total_contacts": 14430,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.674505400005728
+        },
+        "current": {
+          "net_arpu_gain": 4078549.66805134,
+          "total_cost": 75176.0,
+          "total_contacts": 13555,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.6218878000508994
+        },
+        "median": {
+          "net_arpu_gain": 2467238.78712287,
+          "total_cost": 42544.0,
+          "total_contacts": 9796,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.395713399979286
+        }
+      }
+    },
+    {
+      "seed": 64,
+      "run_order": [
+        "current",
+        "median",
+        "original"
+      ],
+      "variants": {
+        "current": {
+          "net_arpu_gain": 2945956.6175529757,
+          "total_cost": 48384.0,
+          "total_contacts": 9012,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.5936581999994814
+        },
+        "median": {
+          "net_arpu_gain": 3474299.371082571,
+          "total_cost": 49512.0,
+          "total_contacts": 8446,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4268230999587104
+        },
+        "original": {
+          "net_arpu_gain": 2881517.3581911325,
+          "total_cost": 64272.0,
+          "total_contacts": 8305,
+          "n_campaigns": 29,
+          "n_pilots": 20,
+          "seconds": 0.6426178000401706
+        }
+      }
+    },
+    {
+      "seed": 65,
+      "run_order": [
+        "median",
+        "original",
+        "current"
+      ],
+      "variants": {
+        "median": {
+          "net_arpu_gain": 3998529.3598503345,
+          "total_cost": 62956.0,
+          "total_contacts": 10300,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4193573000375181
+        },
+        "original": {
+          "net_arpu_gain": 3201736.2897839397,
+          "total_cost": 77318.0,
+          "total_contacts": 14350,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6646250999765471
+        },
+        "current": {
+          "net_arpu_gain": 3164986.896230019,
+          "total_cost": 59080.0,
+          "total_contacts": 12699,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.594000899931416
+        }
+      }
+    },
+    {
+      "seed": 66,
+      "run_order": [
+        "original",
+        "current",
+        "median"
+      ],
+      "variants": {
+        "original": {
+          "net_arpu_gain": 3431868.432757014,
+          "total_cost": 93566.0,
+          "total_contacts": 14763,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.665180700016208
+        },
+        "current": {
+          "net_arpu_gain": 3914113.964027724,
+          "total_cost": 59330.0,
+          "total_contacts": 8751,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.6089248000644147
+        },
+        "median": {
+          "net_arpu_gain": 3393351.9821857577,
+          "total_cost": 51900.0,
+          "total_contacts": 9919,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4558279999764636
+        }
+      }
+    },
+    {
+      "seed": 67,
+      "run_order": [
+        "current",
+        "median",
+        "original"
+      ],
+      "variants": {
+        "current": {
+          "net_arpu_gain": 4038589.1065393146,
+          "total_cost": 60772.0,
+          "total_contacts": 8717,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.6196399999316782
+        },
+        "median": {
+          "net_arpu_gain": 2916961.188454795,
+          "total_cost": 50388.0,
+          "total_contacts": 9476,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4090098000597209
+        },
+        "original": {
+          "net_arpu_gain": 3556357.4891919415,
+          "total_cost": 32216.0,
+          "total_contacts": 8361,
+          "n_campaigns": 29,
+          "n_pilots": 20,
+          "seconds": 0.6417660999577492
+        }
+      }
+    },
+    {
+      "seed": 68,
+      "run_order": [
+        "median",
+        "original",
+        "current"
+      ],
+      "variants": {
+        "median": {
+          "net_arpu_gain": 3696127.7736082873,
+          "total_cost": 46636.0,
+          "total_contacts": 10247,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4171896000625566
+        },
+        "original": {
+          "net_arpu_gain": 3759640.3796276897,
+          "total_cost": 57500.0,
+          "total_contacts": 13455,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.6671390999108553
+        },
+        "current": {
+          "net_arpu_gain": 4349883.273260397,
+          "total_cost": 95330.0,
+          "total_contacts": 12792,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.6208593000192195
+        }
+      }
+    },
+    {
+      "seed": 69,
+      "run_order": [
+        "original",
+        "current",
+        "median"
+      ],
+      "variants": {
+        "original": {
+          "net_arpu_gain": 3236990.292633307,
+          "total_cost": 52736.0,
+          "total_contacts": 10096,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 0.650118499994278
+        },
+        "current": {
+          "net_arpu_gain": 4080259.5705457474,
+          "total_cost": 52664.0,
+          "total_contacts": 9087,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.643421099986881
+        },
+        "median": {
+          "net_arpu_gain": 3992485.4670336125,
+          "total_cost": 59578.0,
+          "total_contacts": 8533,
+          "n_campaigns": 30,
+          "n_pilots": 20,
+          "seconds": 1.4085663000587374
+        }
+      }
+    }
+  ],
+  "summary": {
+    "known_0_9": {
+      "seeds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "variants": {
+        "original": {
+          "completed": 10,
+          "failed": 0,
+          "net_arpu_gain": {
+            "mean": 3604590.5201526163,
+            "median": 3665110.4283523,
+            "min": 2778041.9811175438,
+            "max": 4259261.640406043
+          },
+          "total_cost": {
+            "mean": 64544.4,
+            "median": 63724.0,
+            "min": 34588.0,
+            "max": 95070.0
+          },
+          "total_contacts": {
+            "mean": 11905.6,
+            "median": 13147.0,
+            "min": 8007,
+            "max": 14470
+          },
+          "n_campaigns": {
+            "mean": 29.7,
+            "median": 30.0,
+            "min": 29,
+            "max": 30
+          },
+          "n_pilots": {
+            "mean": 20,
+            "median": 20.0,
+            "min": 20,
+            "max": 20
+          },
+          "seconds": {
+            "mean": 0.6601108299801126,
+            "median": 0.6588782499893568,
+            "min": 0.6417932999320328,
+            "max": 0.6774322000565007
+          }
+        },
+        "current": {
+          "completed": 10,
+          "failed": 0,
+          "net_arpu_gain": {
+            "mean": 3696981.1628532163,
+            "median": 3760624.414279762,
+            "min": 2934502.2029891554,
+            "max": 4231176.04593592
+          },
+          "total_cost": {
+            "mean": 64593.2,
+            "median": 68329.0,
+            "min": 31468.0,
+            "max": 97742.0
+          },
+          "total_contacts": {
+            "mean": 10772.7,
+            "median": 10565.5,
+            "min": 7666,
+            "max": 13475
+          },
+          "n_campaigns": {
+            "mean": 30,
+            "median": 30.0,
+            "min": 30,
+            "max": 30
+          },
+          "n_pilots": {
+            "mean": 20,
+            "median": 20.0,
+            "min": 20,
+            "max": 20
+          },
+          "seconds": {
+            "mean": 1.5802415000041947,
+            "median": 1.580209250038024,
+            "min": 1.5669554999331012,
+            "max": 1.59597769996617
+          }
+        },
+        "median": {
+          "completed": 10,
+          "failed": 0,
+          "net_arpu_gain": {
+            "mean": 3394042.0306682894,
+            "median": 3510287.814359665,
+            "min": 2282692.100670175,
+            "max": 4266130.777139746
+          },
+          "total_cost": {
+            "mean": 57815.6,
+            "median": 52191.0,
+            "min": 33404.0,
+            "max": 84934.0
+          },
+          "total_contacts": {
+            "mean": 9593,
+            "median": 9925.0,
+            "min": 8446,
+            "max": 10295
+          },
+          "n_campaigns": {
+            "mean": 30,
+            "median": 30.0,
+            "min": 30,
+            "max": 30
+          },
+          "n_pilots": {
+            "mean": 20,
+            "median": 20.0,
+            "min": 20,
+            "max": 20
+          },
+          "seconds": {
+            "mean": 1.3982916300068609,
+            "median": 1.4017060000333004,
+            "min": 1.375841600005515,
+            "max": 1.408640000037849
+          }
+        }
+      },
+      "paired": {
+        "current_minus_original": {
+          "paired_count": 10,
+          "delta_net": {
+            "mean": 92390.64270059978,
+            "median": 133486.10491578234,
+            "min": -566568.5279688346,
+            "max": 516187.2003515763
+          },
+          "improvements": 6,
+          "worsenings": 4,
+          "ties": 0,
+          "worse_seeds": [
+            0,
+            4,
+            7,
+            9
+          ]
+        },
+        "median_minus_original": {
+          "paired_count": 10,
+          "delta_net": {
+            "mean": -210548.48948432723,
+            "median": -100103.15299178031,
+            "min": -1429054.6238735407,
+            "max": 639844.147631716
+          },
+          "improvements": 4,
+          "worsenings": 6,
+          "ties": 0,
+          "worse_seeds": [
+            0,
+            2,
+            5,
+            6,
+            7,
+            9
+          ]
+        },
+        "current_minus_median": {
+          "paired_count": 10,
+          "delta_net": {
+            "mean": 302939.132184927,
+            "median": 508831.75575340004,
+            "min": -605887.4419549853,
+            "max": 984621.3565456746
+          },
+          "improvements": 7,
+          "worsenings": 3,
+          "ties": 0,
+          "worse_seeds": [
+            1,
+            4,
+            8
+          ]
+        }
+      }
+    },
+    "known_30_39": {
+      "seeds": [
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+      ],
+      "variants": {
+        "original": {
+          "completed": 10,
+          "failed": 0,
+          "net_arpu_gain": {
+            "mean": 3577104.4324047836,
+            "median": 3777571.8745992426,
+            "min": 2769509.2877677847,
+            "max": 4031865.1784047075
+          },
+          "total_cost": {
+            "mean": 60419.4,
+            "median": 61819.0,
+            "min": 37928.0,
+            "max": 77314.0
+          },
+          "total_contacts": {
+            "mean": 12533.8,
+            "median": 13127.0,
+            "min": 9970,
+            "max": 14789
+          },
+          "n_campaigns": {
+            "mean": 30,
+            "median": 30.0,
+            "min": 30,
+            "max": 30
+          },
+          "n_pilots": {
+            "mean": 20,
+            "median": 20.0,
+            "min": 20,
+            "max": 20
+          },
+          "seconds": {
+            "mean": 0.6612981099984608,
+            "median": 0.655650999979116,
+            "min": 0.632971000042744,
+            "max": 0.6874653999693692
+          }
+        },
+        "current": {
+          "completed": 10,
+          "failed": 0,
+          "net_arpu_gain": {
+            "mean": 3723179.8291867394,
+            "median": 3816948.1053164694,
+            "min": 3048189.5646008137,
+            "max": 4350141.195473812
+          },
+          "total_cost": {
+            "mean": 58711.4,
+            "median": 53200.0,
+            "min": 36612.0,
+            "max": 84746.0
+          },
+          "total_contacts": {
+            "mean": 10930.8,
+            "median": 11043.5,
+            "min": 7971,
+            "max": 13475
+          },
+          "n_campaigns": {
+            "mean": 29.9,
+            "median": 30.0,
+            "min": 29,
+            "max": 30
+          },
+          "n_pilots": {
+            "mean": 20,
+            "median": 20.0,
+            "min": 20,
+            "max": 20
+          },
+          "seconds": {
+            "mean": 1.5812963099917396,
+            "median": 1.577573949994985,
+            "min": 1.5474128999048844,
+            "max": 1.621950100059621
+          }
+        },
+        "median": {
+          "completed": 10,
+          "failed": 0,
+          "net_arpu_gain": {
+            "mean": 3414866.2993871015,
+            "median": 3776260.4444500753,
+            "min": 1774321.447720696,
+            "max": 4019308.6991580613
+          },
+          "total_cost": {
+            "mean": 61154.0,
+            "median": 62186.0,
+            "min": 29932.0,
+            "max": 98572.0
+          },
+          "total_contacts": {
+            "mean": 9773.6,
+            "median": 10107.5,
+            "min": 6923,
+            "max": 10423
+          },
+          "n_campaigns": {
+            "mean": 29.9,
+            "median": 30.0,
+            "min": 29,
+            "max": 30
+          },
+          "n_pilots": {
+            "mean": 20,
+            "median": 20.0,
+            "min": 20,
+            "max": 20
+          },
+          "seconds": {
+            "mean": 1.4012815099908038,
+            "median": 1.3998363499413244,
+            "min": 1.3601185999577865,
+            "max": 1.428674399969168
+          }
+        }
+      },
+      "paired": {
+        "current_minus_original": {
+          "paired_count": 10,
+          "delta_net": {
+            "mean": 146075.39678195585,
+            "median": 107823.93973923335,
+            "min": -151019.52280399622,
+            "max": 413667.3713887399
+          },
+          "improvements": 7,
+          "worsenings": 3,
+          "ties": 0,
+          "worse_seeds": [
+            31,
+            32,
+            38
+          ]
+        },
+        "median_minus_original": {
+          "paired_count": 10,
+          "delta_net": {
+            "mean": -162238.13301768195,
+            "median": -30233.320711174514,
+            "min": -1305878.589472564,
+            "max": 1249799.4113902766
+          },
+          "improvements": 4,
+          "worsenings": 6,
+          "ties": 0,
+          "worse_seeds": [
+            30,
+            31,
+            32,
+            35,
+            36,
+            39
+          ]
+        },
+        "current_minus_median": {
+          "paired_count": 10,
+          "delta_net": {
+            "mean": 308313.5297996378,
+            "median": 194874.27368650236,
+            "min": -882205.5928463861,
+            "max": 1401697.45015789
+          },
+          "improvements": 8,
+          "worsenings": 2,
+          "ties": 0,
+          "worse_seeds": [
+            34,
+            38
+          ]
+        }
+      }
+    },
+    "control_50_69": {
+      "seeds": [
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69
+      ],
+      "variants": {
+        "original": {
+          "completed": 20,
+          "failed": 0,
+          "net_arpu_gain": {
+            "mean": 3489013.758284646,
+            "median": 3587584.668119937,
+            "min": 2799260.9431513785,
+            "max": 4236111.563964417
+          },
+          "total_cost": {
+            "mean": 68465.2,
+            "median": 65206.0,
+            "min": 32216.0,
+            "max": 94962.0
+          },
+          "total_contacts": {
+            "mean": 12377.8,
+            "median": 13855.0,
+            "min": 8305,
+            "max": 15000
+          },
+          "n_campaigns": {
+            "mean": 29.75,
+            "median": 30.0,
+            "min": 29,
+            "max": 30
+          },
+          "n_pilots": {
+            "mean": 20,
+            "median": 20.0,
+            "min": 20,
+            "max": 20
+          },
+          "seconds": {
+            "mean": 0.6634454749990255,
+            "median": 0.6554153000470251,
+            "min": 0.6247539999894798,
+            "max": 0.7688335999846458
+          }
+        },
+        "current": {
+          "completed": 20,
+          "failed": 0,
+          "net_arpu_gain": {
+            "mean": 3734671.836858795,
+            "median": 3817753.9246733617,
+            "min": 2945956.6175529757,
+            "max": 4349883.273260397
+          },
+          "total_cost": {
+            "mean": 65243.3,
+            "median": 60051.0,
+            "min": 36068.0,
+            "max": 95330.0
+          },
+          "total_contacts": {
+            "mean": 11194,
+            "median": 12400.5,
+            "min": 8631,
+            "max": 13555
+          },
+          "n_campaigns": {
+            "mean": 30,
+            "median": 30.0,
+            "min": 30,
+            "max": 30
+          },
+          "n_pilots": {
+            "mean": 20,
+            "median": 20.0,
+            "min": 20,
+            "max": 20
+          },
+          "seconds": {
+            "mean": 1.6068484049930702,
+            "median": 1.605293550004717,
+            "min": 1.582536599948071,
+            "max": 1.643421099986881
+          }
+        },
+        "median": {
+          "completed": 20,
+          "failed": 0,
+          "net_arpu_gain": {
+            "mean": 3472095.603611244,
+            "median": 3609853.266113867,
+            "min": 2467238.78712287,
+            "max": 4272746.962998339
+          },
+          "total_cost": {
+            "mean": 55341.3,
+            "median": 51144.0,
+            "min": 32400.0,
+            "max": 99378.0
+          },
+          "total_contacts": {
+            "mean": 9650.6,
+            "median": 9855.5,
+            "min": 8446,
+            "max": 10439
+          },
+          "n_campaigns": {
+            "mean": 30,
+            "median": 30.0,
+            "min": 30,
+            "max": 30
+          },
+          "n_pilots": {
+            "mean": 20,
+            "median": 20.0,
+            "min": 20,
+            "max": 20
+          },
+          "seconds": {
+            "mean": 1.41730267998646,
+            "median": 1.4142614000593312,
+            "min": 1.3614608999341726,
+            "max": 1.485472899978049
+          }
+        }
+      },
+      "paired": {
+        "current_minus_original": {
+          "paired_count": 20,
+          "delta_net": {
+            "mean": 245658.07857414865,
+            "median": 220878.02917313483,
+            "min": -471192.2248234609,
+            "max": 1189089.3568038451
+          },
+          "improvements": 13,
+          "worsenings": 7,
+          "ties": 0,
+          "worse_seeds": [
+            50,
+            51,
+            54,
+            55,
+            59,
+            60,
+            65
+          ]
+        },
+        "median_minus_original": {
+          "paired_count": 20,
+          "delta_net": {
+            "mean": -16918.154673402198,
+            "median": -44165.745297817746,
+            "min": -1358962.898945352,
+            "max": 1338547.177866825
+          },
+          "improvements": 9,
+          "worsenings": 11,
+          "ties": 0,
+          "worse_seeds": [
+            51,
+            52,
+            54,
+            55,
+            57,
+            59,
+            60,
+            63,
+            66,
+            67,
+            68
+          ]
+        },
+        "current_minus_median": {
+          "paired_count": 20,
+          "delta_net": {
+            "mean": 262576.23324755084,
+            "median": 89744.90369213908,
+            "min": -833542.4636203153,
+            "max": 1611310.8809284703
+          },
+          "improvements": 12,
+          "worsenings": 8,
+          "ties": 0,
+          "worse_seeds": [
+            50,
+            51,
+            53,
+            56,
+            58,
+            60,
+            64,
+            65
+          ]
+        }
+      }
+    }
+  },
+  "limits": [
+    "Same seed need not produce identical pilot samples after actions diverge.",
+    "Wall time is descriptive, sequential rotating order, no process isolation.",
+    "Historical full-agent numbers cannot be reproduced by swapping only a generator."
+  ]
+}

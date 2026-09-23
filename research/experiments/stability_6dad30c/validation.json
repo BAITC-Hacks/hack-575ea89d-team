@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "base_main": "6dad30c",
+  "full_suite_snapshot_commit": "6105f24",
+  "tests": [
+    {"command": "python -m unittest discover -s tests -v", "context": "ordinary Windows checkout with core.autocrlf=true", "tests": 38, "passed_test_methods": 36, "failed_test_methods": 2, "failure_subtests": 15, "limitations": ["14 organizer text-file SHA256 mismatches caused by CRLF conversion", "pandas.to_csv CRLF versus Path.read_text LF"]},
+    {"command": "python -c \"import os,runpy,sys; os.linesep=chr(10); sys.argv=['unittest','discover','-s','tests','-v']; runpy.run_module('unittest',run_name='__main__')\"", "context": "isolated git archive snapshot with core.autocrlf=false; only test-process linesep normalized", "tests": 38, "passed": 38, "failures": 0},
+    {"command": "python -m unittest strategy.test_planner -v", "context": "same isolated snapshot", "tests": 6, "passed": 6, "failures": 0}
+  ],
+  "official_evaluation": {"seed42_net_rounded": 3740829, "seed42_cost": 72570, "seed42_contacts": 12341, "runs_0_9_median_net_rounded": 3760624, "runs_0_9_min_net_rounded": 2934502, "runs_0_9_positive": 10},
+  "study_completion": {"fixed_planner_runs": 120, "run_errors": 0, "bootstrap_replicates": 200, "leave_one_out_cases": 94},
+  "replay": {"seed": 50, "variants": 3, "numeric_metrics_match": true, "changed_runtime_source_rejected": true},
+  "preservation": {"runtime_generators_changed": false, "planner_changed": false, "submission_regenerated": false, "organizer_data_edited": false, "historical_results_overwritten": false},
+  "notes": ["All performance metrics are mock only.", "No full-agent comparison is claimed.", "Existing submission passes in LF snapshot; regeneration belongs to laptop 1.", "Timing is descriptive, not a statistically controlled performance benchmark."]
+}

@@ -93,3 +93,8 @@ def dashboard_script():
 @app.get("/styles.css", include_in_schema=False)
 def dashboard_styles():
     return FileResponse(FRONTEND_DIR / "styles.css", media_type="text/css", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/appearance.js", include_in_schema=False)
+def dashboard_appearance():
+    return FileResponse(FRONTEND_DIR / "appearance.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})

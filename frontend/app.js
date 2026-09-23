@@ -416,6 +416,7 @@ function renderDecisionLab() {
   const select=$('lab-versus'); select.replaceChildren(); select.disabled=!other.length;
   for(const option of other) { const node=el('option',optionName(option)); node.value=option.solution_type; select.append(node); }
   select.value=state.labVersus || '';
+  syncFilterMenus('lab-versus');
   if (!comparator) { $('lab-difference').textContent='Для сравнения нужен ещё один сценарий от API.'; return; }
   const cost=focused.cost_kzt-comparator.cost_kzt, load=focused.expected_load_pct-comparator.expected_load_pct;
   const parts=[cost === 0 ? 'Та же стоимость' : `На ${money(Math.abs(cost))} ${cost > 0 ? 'дороже' : 'дешевле'}`, load === 0 ? 'та же прогнозная нагрузка' : `нагрузка на ${fmt(Math.abs(load))} п.п. ${load > 0 ? 'выше' : 'ниже'}`];
@@ -486,8 +487,10 @@ $('order-form').onsubmit = event => { event.preventDefault(); run(async () => { 
 
 // Keep native selects as the filter data source; enhance their visible controls.
 const filterMenus = [];
-function syncFilterMenus() {
+function syncFilterMenus(onlyId) {
   for (const menu of filterMenus) {
+    if (onlyId && menu.select.id !== onlyId) continue;
+    menu.trigger.disabled = menu.select.disabled;
     menu.close();
     menu.value.textContent = menu.select.selectedOptions[0]?.textContent || 'Все';
     menu.trigger.classList.toggle('has-selection', menu.select.value !== '');
@@ -509,7 +512,7 @@ function syncFilterMenus() {
   }
 }
 function initFilterMenus() {
-  document.querySelectorAll('.filters select').forEach(select => {
+  document.querySelectorAll('.filters select, #lab-versus').forEach(select => {
     const label = select.parentElement, name = label.firstChild.textContent.trim();
     const wrapper = el('div',undefined,'filter-field'), caption = el('span',name,'filter-label');
     caption.id = `${select.id}-label`;
@@ -534,7 +537,7 @@ function initFilterMenus() {
       trigger.setAttribute('aria-activedescendant',list.children[active].id);
       list.children[active].scrollIntoView({block:'nearest'});
     };
-    const open = () => { filterMenus.forEach(item=>item.close()); list.hidden = false; wrapper.classList.add('is-open'); trigger.setAttribute('aria-expanded','true'); focusOption(Math.max(0,select.selectedIndex)); };
+    const open = () => { if (select.disabled || !select.options.length) return; filterMenus.forEach(item=>item.close()); list.hidden = false; wrapper.classList.add('is-open'); trigger.setAttribute('aria-expanded','true'); focusOption(Math.max(0,select.selectedIndex)); };
     trigger.onclick = () => list.hidden ? open() : menu.close();
     trigger.onkeydown = event => {
       if (event.key === 'Tab') { menu.close(); return; }

@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from html.parser import HTMLParser
 import sqlite3
 from fastapi.testclient import TestClient
 from app.main import app
@@ -17,6 +18,25 @@ def test_dashboard_and_api_share_one_origin():
     for path in ['/backend/.env', '/.env', '/data/state.sqlite3', '/AGENTS.md', '/frontend/../backend/.env']:
         assert client.get(path).status_code == 404
     assert client.get('/health').json() == {'status': 'ok'}
+
+
+def test_dashboard_referenced_local_assets_are_served():
+    class Assets(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            url = attrs.get('src') if tag == 'script' else attrs.get('href') if tag == 'link' and attrs.get('rel') == 'stylesheet' else None
+            if url and not url.startswith(('https://', 'http://', '//')):
+                paths.append(('/' + url.lstrip('/'), 'text/javascript' if tag == 'script' else 'text/css'))
+
+    paths = []
+    Assets().feed(client.get('/').text)
+    assert paths
+    for path, content_type in paths:
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert response.headers['content-type'].startswith(content_type), path
+        assert response.headers['cache-control'] == 'no-cache', path
+        assert response.content, path
 
 
 def test_full_demo_and_idempotent_action():

@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="ru">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Центр управления сетью</title><link rel="stylesheet" href="styles.css"><script src="app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Центр управления сетью</title><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""><link rel="stylesheet" href="styles.css"><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script><script src="app.js" defer></script></head>
 <body>
 <a class="skip" href="#workspace">К инцидентам</a>
 <header><div class="brand"><span class="logo" aria-hidden="true">N</span><div><strong>Network Intelligence</strong><small>Центр управления сетью</small></div></div><span class="source">Демо · синтетические данные</span></header>
 <main>
-<div class="heading"><div><p class="eyebrow">РАБОЧЕЕ МЕСТО ОПЕРАТОРА</p><h1>Что происходит в сети?</h1><p>Выберите инцидент, оцените решение и передайте его команде.</p></div><button id="refresh" class="secondary">Обновить данные</button></div>
+<div class="heading"><div><p class="eyebrow">РАБОЧЕЕ МЕСТО ОПЕРАТОРА</p><h1>Что происходит в сети?</h1><p>Выберите инцидент, оцените решение и передайте его команде.</p></div><div class="heading-actions"><a class="studio-jump" href="#decision-lab">Пульт решений ↗</a><button id="refresh" class="secondary">Обновить данные</button></div></div>
 <div class="data-status"><span id="api-indicator" class="api-indicator" role="status" title="Состояние по последнему запросу. Кнопка «Обновить данные» проверяет связь заново.">Ожидание API</span><span id="data-freshness" title="Время получения данных браузером, а не время измерения нагрузки.">Сеть ещё не загружена</span></div>
 <div id="overview" class="overview" aria-label="Сводка сети"></div>
 <p id="error" class="error" role="alert" hidden></p><p id="notice" role="status" aria-live="polite"></p>
@@ -23,13 +23,23 @@
 <form id="budget-form"><label>Доступный бюджет, ₸<input id="budget" type="text" inputmode="numeric" value="20 000 000" required aria-describedby="simulation-status"></label><button id="simulate" class="secondary">Пересчитать</button></form>
 <div class="presets" aria-label="Быстрый выбор бюджета"><button type="button" data-budget="10000000" class="secondary">10 млн ₸</button><button type="button" data-budget="20000000" class="secondary">20 млн ₸</button><button type="button" data-budget="50000000" class="secondary">50 млн ₸</button></div>
 <p id="simulation-status" class="muted" role="status">Выберите инцидент для расчёта.</p><p id="budget-gap" class="budget-gap" hidden></p><div id="decision-hint" class="decision-hint" hidden></div>
+
+<section id="decision-lab" class="decision-lab" hidden aria-labelledby="lab-title">
+<div class="lab-heading"><div><p class="lab-kicker">DECISION STUDIO / ПУЛЬТ РЕШЕНИЙ</p><h3 id="lab-title">Один бюджет.<br>Разные возможности.</h3></div><span class="lab-source">Прогноз · данные API</span></div>
+<p class="lab-intro">Посмотрите, что вы получаете за каждый тенге. Выберите точку — сравните эффект.</p>
+<div id="lab-priorities" class="lab-priorities" role="group" aria-label="Приоритет сравнения"><button type="button" data-lab-priority="cost_kzt" aria-pressed="true">01 / Экономия</button><button type="button" data-lab-priority="expected_load_pct" aria-pressed="false">02 / Меньше нагрузка</button><button type="button" data-lab-priority="installation_days" aria-pressed="false">03 / Быстрый запуск</button></div>
+<div class="lab-body"><div class="lab-chart-wrap"><div class="lab-axis-top"><span>Прогноз нагрузки, %</span><span id="lab-budget-label"></span></div><div id="lab-chart" class="lab-chart" role="group" aria-label="Варианты по стоимости и нагрузке"><div id="lab-affordable" class="lab-affordable"></div><div id="lab-budget-line" class="lab-budget-line"></div><div id="lab-points"></div><span id="lab-y-max" class="lab-y-max"></span><span class="lab-y-zero">0</span></div><div class="lab-axis-bottom"><span>0 ₸</span><span>Стоимость →</span><span id="lab-x-max"></span></div><p class="lab-legend"><span>● В бюджете</span><span>○ Вне бюджета / недоступно</span><span>↙ Меньше стоимость и нагрузка</span></p></div><div id="lab-focus" class="lab-focus" aria-live="polite"></div></div>
+<div class="lab-duel"><label>Сравнить выбранное решение с<select id="lab-versus"></select></label><p id="lab-difference" aria-live="polite"></p></div>
+<div class="lab-footer"><span id="lab-context"></span><span>Исследование не создаёт заказ</span></div>
+</section>
 <div id="comparison" class="table-scroll" hidden tabindex="0" role="region" aria-label="Сравнение решений"></div><div id="options" class="options"></div>
 </section>
 <section class="panel" id="order-section"><p class="eyebrow">ШАГ 3</p><h2>Передать решение команде</h2><p id="order-empty" class="muted">Выберите доступный вариант выше. Перед созданием вы увидите стоимость и прогноз.</p><div id="confirmation" hidden><h3>Проверьте выбранное решение</h3><p id="confirmation-text"></p><div id="forecast" class="forecast"></div><div class="actions"><button id="create-order">Подтвердить и создать заказ</button><button id="cancel-order" class="secondary">Отмена</button></div></div><div id="work-order" class="work-order" role="status" hidden></div></section>
-<details class="panel network"><summary>Карта сети и показатели вышек</summary>
+<details id="network-panel" class="panel network"><summary>Карта сети и показатели вышек</summary>
 <div class="map-toolbar"><label>Выбранная вышка<select id="tower-picker"></select></label><a id="map-external" class="map-link" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" hidden>Открыть OpenStreetMap ↗</a></div>
-<div id="map" class="map" aria-label="Схема расположения вышек"></div>
-<p class="muted">Число у маркера — количество инцидентов этой вышки. Географическая карта выбранной вышки открывается в OpenStreetMap в новой вкладке, с передачей её координат; нужен интернет.</p>
+<div class="street-controls"><button id="show-streets" class="secondary" type="button" aria-pressed="true">Карта Астаны</button><button id="show-scheme" class="secondary" type="button" aria-pressed="false">Схема</button><button id="fit-network" class="secondary" type="button">Все вышки</button></div><p class="map-disclaimer">Реальные улицы и здания OpenStreetMap · вышки и инциденты — синтетические данные.</p><p id="street-status" class="muted" role="status"></p><div id="street-map" class="street-map" aria-label="Карта Астаны с вышками"></div>
+<div id="map" class="map" hidden aria-label="Схема расположения вышек"></div>
+<p class="muted">Нажмите маркер для выбора вышки, затем откройте её инцидент ниже. Карту можно перемещать и масштабировать кнопками +/−. Для улиц нужен интернет; схема доступна без подложки.</p>
 <p class="muted">Схема показывает все вышки по координатам, без географической подложки. Выберите вышку, затем её инцидент для диагностики. Покрытие и связи между вышками не моделируются.</p><div id="tower-details"></div></details>
 <details class="panel order-lookup"><summary>Найти ранее созданный заказ</summary><form id="order-form"><label>Номер заказа<input id="order-id" placeholder="WO-8821" required></label><button id="load-order" class="secondary">Найти заказ</button></form><div id="saved-order" hidden></div></details>
 </div></div>

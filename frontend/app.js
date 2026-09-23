@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = { base: 'http://localhost:8000', towers: [], incidents: [], incident: null, towerId: null, options: [], simulation: null, choice: null, busy: false, version: 0, timer: null, lastUpdatedAt: null, connection: 'waiting' };
+const state = { base: 'http://localhost:8000', towers: [], incidents: [], incident: null, towerId: null, options: [], simulation: null, choice: null, busy: false, version: 0, timer: null, lastUpdatedAt: null, connection: 'waiting', labPriority: 'cost_kzt', labFocus: null, labVersus: null, streetMode: true };
 const labels = { critical:'Критический', high:'Высокий', medium:'Средний', investigating:'Диагностика', open:'Открыт', pending:'Ожидает выполнения', network_congestion:'Перегрузка сети', weak_coverage:'Слабое покрытие', normal:'Норма', degraded:'Ухудшение связи', coverage_issue:'Проблема покрытия', completed:'Выполнено', closed:'Закрыт', resolved:'Решён', low:'Низкий', upgrade_existing:'Модернизация вышки', additional_equipment:'Доп. оборудование', new_tower:'Новая вышка' };
 const tr = value => labels[value] || value || '—';
 const fmt = value => typeof value === 'number' && Number.isFinite(value) ? new Intl.NumberFormat('ru-RU').format(value) : '—';
@@ -101,6 +101,7 @@ function areaOf(item) { return state.towers.find(t=>t.id === item.tower_id)?.are
 function optionName(option) { return labels[option.solution_type] || option.name || option.solution_type; }
 function available(option) { return option.available === true && Number.isFinite(option.cost_kzt) && option.cost_kzt >= 0 && budget() !== null && option.cost_kzt <= budget(); }
 function clearExtras() {
+  $('decision-lab').hidden = true; state.labFocus = null; state.labVersus = null;
   $('comparison').replaceChildren(); $('comparison').hidden = true;
   $('compare-toggle').setAttribute('aria-expanded','false'); $('compare-toggle').textContent = 'Сравнить варианты';
   $('budget-gap').hidden = true; $('decision-hint').hidden = true; $('forecast').replaceChildren();
@@ -118,7 +119,7 @@ function syncControls() {
   ['refresh','analyze','load-order'].forEach(id => $(id).disabled = state.busy);
   $('simulate').disabled = state.busy || !state.incident || budget() === null;
   $('create-order').disabled = state.busy || !state.choice || !state.simulation || state.simulation.budget !== budget();
-  document.querySelectorAll('.incident,.marker,.tower-incident,.option button').forEach(button => button.disabled = state.busy || button.dataset.unavailable === 'true');
+  document.querySelectorAll('.incident,.marker,.tower-incident,.option button,.lab-select').forEach(button => button.disabled = state.busy || button.dataset.unavailable === 'true');
   $('connection-form').querySelector('button').disabled = state.busy;
   $('compare-toggle').disabled = state.busy || !state.simulation || !state.options.length;
   $('analyze').textContent = state.busy ? 'Ожидайте…' : 'Проверить причину';
@@ -177,7 +178,55 @@ function renderIncidents() {
   }
   syncControls();
 }
+
+let streetMap = null, streetMarkers = null, streetDataset = '', streetTileLayer = null;
+function fitStreetNetwork() {
+  const towers = state.towers.filter(hasCoordinates);
+  if (!streetMap) return;
+  streetMap.invalidateSize();
+  if (towers.length) streetMap.fitBounds(towers.map(t=>[t.lat,t.lon]),{padding:[35,35],maxZoom:14});
+  else streetMap.setView([51.128,71.431],13);
+}
+function renderStreetMap() {
+  if (!$('network-panel').open) return;
+  const supported = typeof L !== 'undefined';
+  const show = state.streetMode && supported;
+  $('street-map').hidden = !show; $('map').hidden = show;
+  $('show-streets').setAttribute('aria-pressed',String(show));
+  $('show-scheme').setAttribute('aria-pressed',String(!show));
+  $('fit-network').disabled = !show;
+  if (!supported) { $('street-status').textContent = 'Библиотека карты не загрузилась. Доступна схема; проверьте интернет и обновите страницу.'; return; }
+  if (!show) { $('street-status').textContent = 'Схема по координатам API, без географической подложки.'; return; }
+  $('street-status').textContent = 'Улицы OpenStreetMap · маркеры из API. Для приближения используйте +.';
+  if (!streetMap) {
+    streetMap = L.map('street-map',{scrollWheelZoom:false}).setView([51.128,71.431],13);
+    streetTileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    });
+    streetTileLayer.on('loading',()=>{ $('street-status').textContent='Загружаем улицы Астаны…'; });
+    streetTileLayer.on('tileerror',()=>{ $('street-status').textContent='Часть карты не загрузилась. Проверьте интернет или используйте схему.'; });
+    streetTileLayer.on('load',()=>{
+      const loaded = $('street-map').querySelectorAll('.leaflet-tile-loaded');
+      $('street-status').textContent=loaded.length ? 'Улицы OpenStreetMap · маркеры из API. Для приближения используйте +.' : 'Подложка недоступна. Переключитесь на схему или проверьте интернет.';
+    });
+    streetTileLayer.addTo(streetMap);
+    streetMarkers = L.layerGroup().addTo(streetMap);
+    L.control.scale({imperial:false}).addTo(streetMap);
+  }
+  streetMap.invalidateSize(); streetMarkers.clearLayers();
+  const towers=state.towers.filter(hasCoordinates);
+  for (const tower of towers) {
+    const dot=el('span',`#${tower.id}`,`street-pin${tower.id === state.towerId ? ' selected' : ''}${tower.status === 'normal' ? '' : ' warning'}`);
+    const count=state.incidents.filter(i=>i.tower_id === tower.id).length;
+    const marker=L.marker([tower.lat,tower.lon],{icon:L.divIcon({html:dot,className:'street-marker',iconSize:[42,30],iconAnchor:[21,15]}),title:`Вышка #${tower.id} · ${tower.area} · инцидентов: ${count}`,keyboard:true}).addTo(streetMarkers);
+    marker.on('click',()=>{ if(state.busy) return; state.towerId=tower.id; renderMap(); renderTower(); syncControls(); });
+  }
+  const key=state.base+'|'+towers.map(t=>`${t.id}:${t.lat}:${t.lon}`).join('|');
+  if(key !== streetDataset) { streetDataset=key; fitStreetNetwork(); }
+}
+
 function renderMap() {
+  renderStreetMap();
   const container = $('map'); container.replaceChildren(); updateMapLink();
   const picker = $('tower-picker'); picker.replaceChildren();
   for (const tower of state.towers) { const option = el('option',`#${tower.id} · ${tower.area || 'Район не указан'}`); option.value = String(tower.id); picker.append(option); }
@@ -306,8 +355,74 @@ function renderOptions() {
     button.setAttribute('aria-label',`${chosen ? 'Выбрано' : 'Выбрать'}: ${optionName(option)}`); button.setAttribute('aria-pressed',String(chosen)); button.dataset.unavailable = String(!canSelect); button.disabled = !canSelect || state.busy;
     button.onclick = () => chooseOption(option); card.append(button); root.append(card);
   }
-  renderComparison();
+  renderComparison(); renderDecisionLab();
 }
+
+function labCandidates() {
+  return state.options.filter(o=>Number.isFinite(o.cost_kzt) && o.cost_kzt >= 0 && Number.isFinite(o.expected_load_pct) && o.expected_load_pct >= 0);
+}
+function preferredLabOption(options) {
+  const eligible = options.filter(available).filter(o=>Number.isFinite(o[state.labPriority]) && o[state.labPriority] >= 0);
+  return [...eligible].sort((a,b)=>a[state.labPriority]-b[state.labPriority] || a.cost_kzt-b.cost_kzt)[0] || options[0];
+}
+function renderDecisionLab() {
+  const options = labCandidates();
+  $('decision-lab').hidden = !state.simulation || !options.length;
+  if (!state.simulation || !options.length) return;
+  $('decision-hint').hidden = true;
+  const focused = options.find(o=>o.solution_type === state.labFocus) || preferredLabOption(options);
+  state.labFocus = focused.solution_type;
+  const current = state.towers.find(t=>t.id === state.incident?.tower_id)?.current_load_pct;
+  const highestCost = Math.max(...options.map(o=>o.cost_kzt),budget(),1);
+  const costStep = 10 ** Math.floor(Math.log10(highestCost));
+  const maxCost = Math.ceil(highestCost/costStep + .25)*costStep;
+  const maxLoad = Math.ceil(Math.max(...options.map(o=>o.expected_load_pct),Number.isFinite(current) ? current : 0,1)/10)*10;
+  const budgetPosition = budget()/maxCost*100;
+  $('lab-budget-line').style.left = `${budgetPosition}%`;
+  $('lab-affordable').style.width = `${budgetPosition}%`;
+  $('lab-budget-label').textContent = `Лимит ${money(budget())}`;
+  $('lab-y-max').textContent = fmt(maxLoad);
+  $('lab-x-max').textContent = money(Math.ceil(maxCost));
+  $('lab-context').textContent = `${state.incident.id} / Вышка #${state.incident.tower_id}`;
+  const points = $('lab-points'); points.replaceChildren();
+  for (const [index,option] of options.entries()) {
+    const selected = option.solution_type === focused.solution_type;
+    const button = el('button',String(index+1),`lab-point${selected ? ' is-focused' : ''}${available(option) ? '' : ' is-locked'}`);
+    button.type = 'button'; button.style.left = `${option.cost_kzt/maxCost*100}%`; button.style.bottom = `${option.expected_load_pct/maxLoad*100}%`;
+    button.setAttribute('aria-pressed',String(selected));
+    button.setAttribute('aria-label',`Исследовать: ${optionName(option)}, ${money(option.cost_kzt)}, нагрузка ${fmt(option.expected_load_pct)}%`);
+    button.title = `${optionName(option)} · ${money(option.cost_kzt)} · ${fmt(option.expected_load_pct)}%`;
+    button.onclick = () => { state.labFocus = option.solution_type; renderDecisionLab(); };
+    points.append(button);
+  }
+  document.querySelectorAll('[data-lab-priority]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.labPriority === state.labPriority)));
+  const root = $('lab-focus'); root.replaceChildren();
+  root.append(el('span',`СЦЕНАРИЙ ${String(options.indexOf(focused)+1).padStart(2,'0')}`,'lab-scenario'),el('h4',optionName(focused)));
+  const number = el('div',undefined,'lab-result'); number.append(el('strong',`${fmt(focused.expected_load_pct)}%`),el('span','прогноз нагрузки')); root.append(number);
+  if (Number.isFinite(current)) {
+    const delta = current-focused.expected_load_pct;
+    root.append(el('p',`${delta >= 0 ? '↓' : '↑'} ${fmt(Math.abs(delta))} п.п. ${delta >= 0 ? 'ниже' : 'выше'} текущих ${fmt(current)}%`,'lab-impact'));
+  }
+  const facts = el('div',undefined,'lab-facts'); facts.append(metric('Стоимость',money(focused.cost_kzt)),metric('Установка',`${fmt(focused.installation_days)} дней`)); root.append(facts);
+  const cta = el('button',available(focused) ? 'Перейти к подтверждению ↗' : (focused.cost_kzt > budget() ? `Не хватает ${money(focused.cost_kzt-budget())}` : 'Недоступно по данным API'),'lab-select');
+  cta.type='button'; cta.dataset.unavailable=String(!available(focused)); cta.disabled=state.busy || !available(focused);
+  cta.onclick=()=>chooseOption(focused); root.append(cta);
+  const other = options.filter(o=>o.solution_type !== focused.solution_type);
+  const comparator = other.find(o=>o.solution_type === state.labVersus) || other[0];
+  state.labVersus = comparator?.solution_type || null;
+  const select=$('lab-versus'); select.replaceChildren(); select.disabled=!other.length;
+  for(const option of other) { const node=el('option',optionName(option)); node.value=option.solution_type; select.append(node); }
+  select.value=state.labVersus || '';
+  if (!comparator) { $('lab-difference').textContent='Для сравнения нужен ещё один сценарий от API.'; return; }
+  const cost=focused.cost_kzt-comparator.cost_kzt, load=focused.expected_load_pct-comparator.expected_load_pct;
+  const parts=[cost === 0 ? 'Та же стоимость' : `На ${money(Math.abs(cost))} ${cost > 0 ? 'дороже' : 'дешевле'}`, load === 0 ? 'та же прогнозная нагрузка' : `нагрузка на ${fmt(Math.abs(load))} п.п. ${load > 0 ? 'выше' : 'ниже'}`];
+  if(Number.isFinite(focused.installation_days) && Number.isFinite(comparator.installation_days)) {
+    const days=focused.installation_days-comparator.installation_days;
+    parts.push(days === 0 ? 'тот же срок установки' : `установка на ${fmt(Math.abs(days))} дн. ${days > 0 ? 'дольше' : 'быстрее'}`);
+  }
+  $('lab-difference').textContent=`${parts.join(' · ')}. Это сравнение прогнозов, не результат выполненных работ.`;
+}
+
 function renderComparison() {
   const table = el('table'); table.append(el('caption','Сравнение прогнозов для выбранной вышки'));
   const head = el('thead'), header = el('tr'); header.append(el('th','Показатель'));
@@ -451,6 +566,12 @@ $('copy-incident-link').onclick = async () => {
   catch { $('incident-link').focus(); $('incident-link').select(); $('copy-link-status').textContent = 'Скопируйте выделенную ссылку вручную.'; }
 };
 $('tower-picker').onchange = () => { state.towerId = state.towers.find(t=>String(t.id) === $('tower-picker').value)?.id ?? null; renderMap(); renderTower(); syncControls(); };
+document.querySelectorAll('[data-lab-priority]').forEach(button=>button.onclick=()=>{ state.labPriority=button.dataset.labPriority; state.labFocus=null; renderDecisionLab(); });
+$('lab-versus').onchange=()=>{ state.labVersus=$('lab-versus').value; renderDecisionLab(); };
+$('network-panel').ontoggle=()=>{ renderStreetMap(); };
+$('show-streets').onclick=()=>{ state.streetMode=true; renderStreetMap(); };
+$('show-scheme').onclick=()=>{ state.streetMode=false; renderStreetMap(); };
+$('fit-network').onclick=fitStreetNetwork;
 setInterval(renderFreshness,30000);
 restoreBase();
 renderFreshness();

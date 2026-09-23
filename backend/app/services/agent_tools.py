@@ -21,8 +21,12 @@ def get_complaints(area: str | None = None, time_window_minutes: int = 60) -> di
     matches = [
         row for row in rows
         if (area is None or row.get("area") == area)
-        and (timestamp := _parse_time(row.get("timestamp") or row.get("time"))) is not None
-        and timestamp >= cutoff
+        and (
+            0 <= row["demo_age_minutes"] <= time_window_minutes
+            if isinstance(row.get("demo_age_minutes"), (int, float))
+            else (timestamp := _parse_time(row.get("timestamp") or row.get("time"))) is not None
+            and timestamp >= cutoff
+        )
     ]
     by_tower = Counter(row.get("tower_id") for row in matches if row.get("tower_id") is not None)
     clusters = []

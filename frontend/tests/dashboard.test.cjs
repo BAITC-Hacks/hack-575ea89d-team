@@ -124,3 +124,32 @@ test('settings are scoped by API; connection errors cannot be masked by a succes
   assert.equal(good.evaluate('readPreferences().budget'),undefined);
   assert.throws(()=>good.evaluate("validateBase('https://user:secret@example.com')"));
 });
+test('studio prioritizes affordable load reduction but allows inspection of an unaffordable option',async()=>{
+  const h=harness(); await h.ready();
+  h.evaluate("state.labPriority='expected_load_pct'; state.labFocus=null; renderDecisionLab()");
+  assert.equal(h.evaluate('state.labFocus'),'additional_equipment');
+  assert.equal(h.evaluate('state.choice'),null);
+  h.evaluate("state.labFocus='new_tower'; renderDecisionLab()");
+  const cta=h.nodes.get('lab-focus').children.at(-1);
+  assert.equal(cta.disabled,true);
+  assert.match(cta.textContent,/20.*000.*000/);
+  assert.equal(h.calls.filter(c=>c.path==='/action').length,0);
+});
+test('studio comparison uses percentage points and clears with stale simulation',async()=>{
+  const h=harness(); await h.ready();
+  assert.match(h.nodes.get('lab-difference').textContent,/6.*000.*000.*дешевле/);
+  assert.match(h.nodes.get('lab-difference').textContent,/7 п.п. выше/);
+  h.evaluate('invalidate()');
+  assert.equal(h.nodes.get('decision-lab').hidden,true);
+  assert.equal(h.evaluate('state.labFocus'),null);
+});
+
+ test('missing map library falls back to the local scheme',async()=>{
+  const h=harness(); await h.ready();
+  h.nodes.get('network-panel').open=true;
+  h.evaluate('renderStreetMap()');
+  assert.equal(h.nodes.get('street-map').hidden,true);
+  assert.equal(h.nodes.get('map').hidden,false);
+  assert.equal(h.nodes.get('fit-network').disabled,true);
+  assert.match(h.nodes.get('street-status').textContent,/Библиотека карты не загрузилась/);
+});

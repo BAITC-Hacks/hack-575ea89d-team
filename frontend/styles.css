@@ -220,3 +220,56 @@ form label{flex-basis:100%}
 .map-link:hover{background:#edf6f4}
 .marker-count{display:inline-grid;place-items:center;min-width:17px;height:17px;border-radius:50%;background:#fff0da;color:#885608;margin-left:5px;font-size:10px}
 @media(max-width:760px){.share-row label{flex-basis:100%}.map-toolbar label{flex-basis:100%}.map-link{width:100%}}
+
+/* Local concept: Decision Studio. All plotted values are API simulation fields. */
+.heading-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.studio-jump{font-size:13px;color:#087e73;font-weight:650;text-decoration:none}
+.decision-lab{margin:22px -7px 24px;padding:27px;background:#102c35;color:#ecf5f6;border:1px solid #1b4550;border-radius:17px;overflow:hidden;box-shadow:0 14px 32px #112e3512}
+.lab-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.lab-kicker{margin:0 0 12px;font-size:9px;letter-spacing:1.8px;color:#8bd8b9;font-weight:700}
+.lab-heading h3{font-size:30px;line-height:1.12;letter-spacing:-1px;margin:0}
+.lab-source{font-size:10px;border:1px solid #42636a;padding:5px 9px;border-radius:20px;white-space:nowrap;color:#b5cacf}
+.lab-intro{color:#a6c0c7;font-size:12px;margin:13px 0 19px}
+.lab-priorities{display:flex;gap:6px;flex-wrap:wrap;padding-bottom:21px}
+.lab-priorities button{background:#1a3943;border:1px solid #35545d;color:#acc5cb;padding:8px 11px;font-size:11px;font-weight:500;border-radius:6px}
+.lab-priorities button[aria-pressed=true]{background:#c1f4bd;border-color:#c1f4bd;color:#163b32}
+.lab-body{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(180px,1fr);gap:24px;align-items:start}
+.lab-chart-wrap{min-width:0;padding-top:3px}
+.lab-axis-top,.lab-axis-bottom{display:flex;justify-content:space-between;gap:10px;font-size:9px;color:#9bb7bf}
+.lab-axis-top{margin:0 0 12px}.lab-axis-top span:last-child{color:#c1f4bd}
+.lab-axis-bottom{margin-top:10px;font-variant-numeric:tabular-nums}
+.lab-chart{position:relative;height:215px;background:repeating-linear-gradient(to top,transparent 0,transparent calc(25% - 1px),#ffffff0c calc(25% - 1px),#ffffff0c 25%);border-left:1px solid #52717a;border-bottom:1px solid #52717a;margin:0 14px 0 18px}
+.lab-affordable{position:absolute;top:0;bottom:0;left:0;background:linear-gradient(90deg,#b8f7b615,#b8f7b606);pointer-events:none}
+.lab-budget-line{position:absolute;top:0;bottom:0;border-right:1px dashed #b6edb86b;pointer-events:none}
+.lab-y-max,.lab-y-zero{position:absolute;left:-22px;font-size:9px;color:#97b1ba}.lab-y-max{top:-6px}.lab-y-zero{bottom:-6px}
+.lab-point{position:absolute;transform:translate(-50%,50%);width:29px;height:29px;padding:0;border:1px solid #b6efb6;background:#1c5149;color:#d4ffd0;border-radius:50%;font-size:11px;z-index:1;transition:box-shadow .2s,background .2s}
+.lab-point:hover{background:#387663;box-shadow:0 0 0 5px #c1f4bd12}
+.lab-point.is-focused{background:#c1f4bd;color:#102c35;box-shadow:0 0 0 6px #c1f4bd17,0 0 0 12px #c1f4bd08;z-index:2}
+.lab-point.is-locked{background:#102c35;border-style:dashed;color:#aabec5;border-color:#718993}
+.lab-point.is-locked.is-focused{box-shadow:0 0 0 6px #aabec517}
+.lab-legend{display:flex;flex-wrap:wrap;gap:7px 12px;font-size:9px;color:#8caab3;margin-top:15px}.lab-legend span:first-child{color:#c1f4bd}
+.lab-focus{border-left:1px solid #36515b;padding-left:23px;min-width:0}
+.lab-scenario{font-size:9px;letter-spacing:1.4px;color:#a2b9c2}
+.lab-focus h4{font-size:16px;line-height:1.25;margin:8px 0 15px;color:#f3fafb;font-weight:600}
+.lab-result strong{display:block;font-size:54px;font-weight:500;line-height:1;letter-spacing:-3px;color:#c1f4bd;font-variant-numeric:tabular-nums}
+.lab-result span{display:block;font-size:10px;color:#a6c0c7;margin-top:7px}
+.lab-impact{font-size:11px;color:#c0dec6;margin:13px 0}
+.lab-facts{display:flex;gap:16px;padding-top:12px;border-top:1px solid #36515b;margin-top:16px;flex-wrap:wrap}
+.lab-facts .metric span{font-size:9px;color:#a6c0c7}.lab-facts .metric strong{font-size:15px;color:#f0f6f8;font-weight:500}
+.lab-select{background:#c1f4bd;color:#163b32;width:100%;padding:10px 7px;margin-top:17px;font-size:10px;border-radius:6px}.lab-select:hover{background:#a9e9a5}.lab-select:disabled{background:#26414b;color:#a2b9c2;opacity:1}
+.lab-duel{display:grid;grid-template-columns:200px minmax(0,1fr);gap:18px;border-top:1px solid #36515b;margin-top:21px;padding-top:19px;align-items:center}
+.lab-duel label{color:#a6c0c7;font-size:10px;font-weight:400}.lab-duel select{background:#193944;color:#e7f1f4;border-color:#42606b;font-size:11px;padding:8px}
+.lab-duel p{font-size:12px;color:#c7dadd;line-height:1.7;margin:0}
+.lab-footer{display:flex;justify-content:space-between;gap:12px;margin-top:20px;font-size:9px;color:#7f9da7;flex-wrap:wrap}
+@media(max-width:850px){.lab-body{grid-template-columns:1fr}.lab-focus{border-left:0;border-top:1px solid #36515b;padding:20px 0 0}.lab-facts{display:grid;grid-template-columns:1fr 1fr}.lab-result strong{font-size:46px}.lab-heading h3{font-size:28px}.lab-duel{grid-template-columns:1fr}.lab-chart{height:190px}}
+@media(max-width:760px){.decision-lab{padding:20px 16px;margin-left:0;margin-right:0}.lab-heading{flex-wrap:wrap}.lab-heading h3{font-size:28px}.lab-priorities button{font-size:10px;padding:8px}.lab-axis-top{flex-wrap:wrap}.lab-source{font-size:9px}.lab-chart{height:190px}}
+@media(prefers-reduced-motion:reduce){.lab-point{transition:none}}
+
+.street-map{height:440px;width:100%;border:1px solid #ccdce0;border-radius:12px;background:#e8efeb;z-index:0;margin-top:12px}
+.street-controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.street-controls [aria-pressed=true]{background:#e7f5ef;color:#087e73;border-color:#168f81}
+.map-disclaimer{font-size:12px;color:#526875;background:#f2f7f7;border-radius:7px;padding:10px 12px}
+.street-pin{display:grid;place-items:center;width:42px;height:30px;background:#fff;border:2px solid #4a8b78;color:#245b4d;border-radius:8px;font-size:11px;font-weight:700;box-shadow:0 2px 7px #0002}
+.street-pin.warning{border-color:#c18335;color:#865719}.street-pin.selected{background:#087e73;color:#fff;border-color:#fff;box-shadow:0 0 0 3px #087e73,0 3px 9px #0003}
+.street-map .leaflet-control-attribution{font-size:10px}.street-map .leaflet-control a{color:#245b4d}
+@media(max-width:760px){.street-map{height:350px}.street-controls button{padding:9px;font-size:12px}}

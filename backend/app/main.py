@@ -55,3 +55,11 @@ def action(payload: ActionRequest) -> dict:
         return action_service.create_work_order(payload.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/work-orders/{work_order_id}")
+def work_order(work_order_id: str) -> dict:
+    item = action_service.get_work_order(work_order_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Unknown work_order_id")
+    return {"work_order": item}

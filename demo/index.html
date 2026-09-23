@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101827">
+  <link rel="icon" href="data:,">
   <title>HackAlem · Tariff Campaign Demo</title>
   <link rel="stylesheet" href="style.css">
   <script src="app.js" defer></script>
@@ -23,7 +24,7 @@
       <p class="lede">Агент тестирует тарифные предложения небольшими пилотами и собирает выполнимый план кампаний.</p>
       <div class="report-controls">
         <label class="file-button">Загрузить report.json<input id="report-file" type="file" accept="application/json,.json"></label>
-        <span id="report-meta" class="muted">Загружаю artifacts/report.json…</span>
+        <span id="report-meta" class="muted" aria-live="polite">Загружаю artifacts/report.json…</span>
       </div>
     </section>
 

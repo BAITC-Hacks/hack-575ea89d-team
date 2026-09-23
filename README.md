@@ -31,6 +31,6 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-API: http://localhost:8000; документация: http://localhost:8000/docs. Пока backend содержит минимальные синтетические fixtures; Абыл заменяет их на 3–5 тысяч жалоб и 30–50 вышек. `POST /analyze` пока использует детерминированный сценарий; участник 1 подключает OpenAI tool calling.
+API: http://localhost:8000; документация: http://localhost:8000/docs. Пока backend содержит минимальные синтетические fixtures; Абыл заменяет их на 3–5 тысяч жалоб и 30–50 вышек. `POST /analyze` вызывает инструменты через OpenAI Responses API, если заданы `OPENAI_API_KEY` и `OPENAI_MODEL`. Без них работает явно помеченный demo-режим с теми же Python-инструментами. Work orders и изменения инцидентов сохраняются в локальный `backend/data/state.sqlite3` (файл игнорируется Git).
 
-Скопируйте `backend/.env.example` в `backend/.env` и внесите ключ только локально. Не добавляйте ключи, ссылки на биллинг и токены в репозиторий или frontend.
+Скопируйте `backend/.env.example` в `backend/.env` и внесите ключ и ID модели только локально. Не добавляйте ключи, ссылки на биллинг и токены в репозиторий или frontend. Работу с реальным OpenAI API нужно проверить с ключом в окружении команды; без него можно проверить demo-режим.

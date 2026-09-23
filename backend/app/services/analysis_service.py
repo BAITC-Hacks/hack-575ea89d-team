@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+from time import monotonic
 
 from dotenv import load_dotenv
 
@@ -19,6 +20,10 @@ counts, costs, loads, users, or completed actions. Return only JSON with inciden
 (an existing ID from get_incidents) and reason (one concise Russian sentence without
 numeric claims). If no suitable incident exists, return {"incident_id": null, "reason": ""}.
 Do not create a work order during analysis; a human selects a solution separately."""
+
+# Frontend waits 45 seconds. Reserve time for the local fallback and HTTP response.
+MODEL_DEADLINE_SECONDS = 35
+MODEL_REQUEST_TIMEOUT_SECONDS = 8
 
 
 def _step_message(name: str, result: dict) -> str:
@@ -90,15 +95,20 @@ def _demo_path(request: dict, steps: list[dict]) -> tuple[str | None, str | None
 def _model_path(request: dict, steps: list[dict]) -> tuple[str | None, str | None]:
     from openai import OpenAI
 
-    client = OpenAI(timeout=20, max_retries=1)
+    client = OpenAI(timeout=MODEL_REQUEST_TIMEOUT_SECONDS, max_retries=0)
     input_items = [{"role": "user", "content": f"Analyze this request using tools: {json.dumps(request, ensure_ascii=False)}"}]
     called = set()
     checked_towers = set()
     simulated_towers = set()
+    deadline = monotonic() + MODEL_DEADLINE_SECONDS
     for _ in range(12):
+        remaining = deadline - monotonic()
+        if remaining < 1:
+            raise TimeoutError("OpenAI analysis exceeded its time budget")
         response = client.responses.create(
             model=os.environ["OPENAI_MODEL"], instructions=INSTRUCTIONS,
             input=input_items, tools=agent_tools.TOOL_SCHEMAS,
+            timeout=min(MODEL_REQUEST_TIMEOUT_SECONDS, remaining),
         )
         input_items.extend(response.output)
         calls = [item for item in response.output if item.type == "function_call"]

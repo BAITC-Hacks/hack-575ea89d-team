@@ -1,6 +1,8 @@
 import hashlib
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import unittest
 
 import pandas as pd
@@ -8,7 +10,7 @@ import pandas as pd
 from agent import Agent
 from make_submission import build_submission
 from mock_environment import make_mock_env
-from scoring_core import validate_strategy
+from scoring_core import score_campaigns, validate_strategy
 from strategy.planner import select_segment
 from tools.report import build_report, json_safe
 
@@ -38,19 +40,65 @@ class ContractTests(unittest.TestCase):
                 for campaign in campaigns:
                     segment = select_segment(env.customer_profile, campaign)
                     self.assertTrue(1 <= len(segment) <= 5000)
-                    current_ids = set(segment.ID_NUMBER)
-                    self.assertFalse(ids & current_ids)
-                    ids |= current_ids
+                    ids.update(segment.ID_NUMBER)
                     contacts += len(segment)
                     cost += len(segment) * env.channels[campaign["channel"]]["cost_per_contact"]
                 self.assertLessEqual(contacts, 15000)
                 self.assertLessEqual(cost, 100000)
+                # Repeated audiences are allowed; each campaign's contacts still count.
+                self.assertLessEqual(len(ids), contacts)
 
     def test_submission_reproducible_and_matches_file(self):
-        first = build_submission(Agent()).to_csv(index=False)
-        second = build_submission(Agent()).to_csv(index=False)
+        first = build_submission(Agent()).to_csv(index=False, lineterminator="\n").encode("utf-8")
+        second = build_submission(Agent()).to_csv(index=False, lineterminator="\n").encode("utf-8")
+        # Reproducibility is a byte-for-byte property of two generations here.
         self.assertEqual(first, second)
-        self.assertEqual(first, (ROOT / "submission.csv").read_text())
+        # read_text() uses universal newline translation, so compare against the
+        # same canonical LF serialization independent of a CRLF checkout.
+        checked_in = (ROOT / "submission.csv").read_text(encoding="utf-8")
+        self.assertEqual(first.decode("utf-8"), checked_in)
+
+    def test_official_scorer_charges_overlapping_contacts_but_deduplicates_lift(self):
+        profile = pd.DataFrame({
+            "ID_NUMBER": [1, 2], "current_tariff": ["tariff_1"] * 2,
+            "arpu_segment": ["MID"] * 2, "predicted_arpu": [1000.0] * 2,
+        })
+        tariffs = pd.DataFrame({"tariff_plan_code": ["tariff_1", "tariff_2"]})
+        impact = pd.DataFrame({
+            "tariff_plan_code_from": ["tariff_1"], "tariff_plan_code_to": ["tariff_2"],
+            "arpu_segment": ["MID"], "arpu_change_pct": [0.5], "conversion_rate": [1.0],
+        })
+        campaign = {
+            "filter_current_tariff": "tariff_1", "filter_arpu_segment": "MID",
+            "target_tariff": "tariff_2", "channel": "sms",
+        }
+        plan = pd.DataFrame([
+            {"campaign_name": "first", **campaign},
+            {"campaign_name": "repeat", **campaign},
+        ])
+
+        result = score_campaigns(
+            plan, profile, impact, tariffs, baseline_total_arpu=2000.0,
+            fallback_predict=lambda *_: (0.0, 1.0),
+        )
+
+        # Both two-person contacts are charged (4 contacts x 4 units), but each
+        # subscriber contributes only their best 325-unit lift once.
+        self.assertEqual([row["n_contacts"] for row in result["campaigns_detail"]], [2, 2])
+        self.assertEqual(result["total_contacts"], 4)
+        self.assertEqual(result["total_cost"], 16)
+        self.assertEqual(result["unique_customers_targeted"], 2)
+        self.assertAlmostEqual(result["gross_arpu_lift"], 650.0)
+        self.assertAlmostEqual(result["net_arpu_gain"], 634.0)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is optional; run demo/app.test.js when available")
+    def test_demo_report_loading_and_error_states(self):
+        result = subprocess.run(
+            ["node", "demo/app.test.js"], cwd=ROOT,
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("pass 5", result.stdout)
 
     def test_report_matches_real_evaluator(self):
         report = build_report(seed=42)

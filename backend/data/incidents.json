@@ -1,0 +1,5 @@
+[
+  {"id":"INC-1042","status":"investigating","priority":"critical","complaints_count":347,"affected_users":1823,"tower_id":17,"probable_cause":"network_congestion","assigned_team":"Network Team A","reason":"Высокая нагрузка Tower #17 совпадает со всплеском жалоб.","recurring_days":14},
+  {"id":"INC-1045","status":"open","priority":"high","complaints_count":128,"affected_users":640,"tower_id":23,"probable_cause":"network_congestion","assigned_team":"Network Team A","reason":"Высокая нагрузка и рост жалоб около Tower #23.","recurring_days":4},
+  {"id":"INC-1048","status":"open","priority":"medium","complaints_count":54,"affected_users":210,"tower_id":31,"probable_cause":"weak_coverage","assigned_team":"Radio Planning Team","reason":"Слабое покрытие в зоне Tower #31.","recurring_days":2}
+]

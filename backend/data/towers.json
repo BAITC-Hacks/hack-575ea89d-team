@@ -1,0 +1,6 @@
+[
+  {"id":17,"area":"Astana District X","lat":51.128,"lon":71.431,"network_type":"4G","capacity":1000,"current_load_pct":96,"coverage_radius_km":2.0,"status":"degraded","affected_users":1823},
+  {"id":23,"area":"Astana District Y","lat":51.145,"lon":71.455,"network_type":"4G","capacity":900,"current_load_pct":91,"coverage_radius_km":1.8,"status":"degraded","affected_users":640},
+  {"id":31,"area":"Astana District Z","lat":51.105,"lon":71.390,"network_type":"4G","capacity":1100,"current_load_pct":68,"coverage_radius_km":0.8,"status":"coverage_issue","affected_users":210},
+  {"id":8,"area":"Astana District X","lat":51.160,"lon":71.400,"network_type":"5G","capacity":1200,"current_load_pct":54,"coverage_radius_km":2.2,"status":"normal","affected_users":80}
+]

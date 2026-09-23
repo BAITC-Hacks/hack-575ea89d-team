@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101827">
+  <title>HackAlem · Tariff Campaign Demo</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="HackAlem demo home">
+        <span class="brand-mark">H</span><span>HackAlem <span class="muted">/ Campaign Lab</span></span>
+      </a>
+      <span class="local-badge"><i></i> Локальный mock-отчёт</span>
+    </header>
+
+    <section class="intro" id="top">
+      <p class="eyebrow">BEELINE TARIFF MARKETING CAMPAIGNS</p>
+      <h1>Сначала проверить.<br><em>Затем масштабировать.</em></h1>
+      <p class="lede">Агент тестирует тарифные предложения небольшими пилотами и собирает выполнимый план кампаний.</p>
+      <div class="report-controls">
+        <label class="file-button">Загрузить report.json<input id="report-file" type="file" accept="application/json,.json"></label>
+        <span id="report-meta" class="muted">Загружаю artifacts/report.json…</span>
+      </div>
+    </section>
+
+    <section id="notice" class="notice" role="status">Для показа запустите из корня проекта: <code>python -m http.server 8000</code>, затем откройте <code>http://localhost:8000/demo/</code>.</section>
+
+    <section class="metric-grid" aria-label="Итоговые показатели">
+      <article class="metric featured"><span>Чистый mock-результат</span><strong id="net">—</strong><small>прирост ARPU минус расходы</small></article>
+      <article class="metric"><span>Расходы</span><strong id="cost">—</strong><small>из 100 000 у.е.</small></article>
+      <article class="metric"><span>Контакты</span><strong id="contacts">—</strong><small>из 15 000, включая пилоты</small></article>
+      <article class="metric"><span>Пилоты</span><strong id="pilots">—</strong><small>не более 20</small></article>
+      <article class="metric"><span>Финальные кампании</span><strong id="campaign-count">—</strong><small>от 1 до 10</small></article>
+    </section>
+
+    <section class="panel">
+      <div class="section-head"><div><p class="eyebrow">01 / LEARN</p><h2>Что показали пилоты</h2></div><p>Шумные наблюдения на небольшой выборке — это сигнал для выбора, а не обещание будущего эффекта.</p></div>
+      <div class="table-wrap"><table><thead><tr><th>Пилот</th><th>Целевой тариф</th><th>Канал</th><th>Абоненты</th><th>Наблюдаемый lift</th></tr></thead><tbody id="pilot-rows"><tr><td colspan="5" class="empty">Загрузите отчёт</td></tr></tbody></table></div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head"><div><p class="eyebrow">02 / PLAN</p><h2>План кампаний</h2></div><p>Финальные кампании показаны отдельно от пилотов. Сегменты в этом отчёте не пересекаются.</p></div>
+      <div class="table-wrap"><table><thead><tr><th>Кампания</th><th>Текущий тариф / сегмент</th><th>Предложение</th><th>Канал</th><th>Охват в mock</th></tr></thead><tbody id="campaign-rows"><tr><td colspan="5" class="empty">Загрузите отчёт</td></tr></tbody></table></div>
+    </section>
+
+    <footer><span>HackAlem · локальная демонстрация</span><span>Синтетические данные · результат судейства может отличаться</span></footer>
+  </main>
+</body>
+</html>

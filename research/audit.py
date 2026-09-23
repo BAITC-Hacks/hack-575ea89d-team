@@ -1,20 +1,17 @@
-"""Reproducible public-data audit: python -m research.audit > audit.json.
-
-Read-only; no environment, scoring or pilot imports.
-"""
+"""Read-only public CSV audit: python -m research.audit. No environment imports."""
 import json
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
-from research.candidates import build_candidates
+from research.candidates import build_candidates, _fit, _history_stats, _median
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def audit():
-    keys = {
+    files = {
         "customer_profile.csv": ["ID_NUMBER"],
         "data/change_tariff.csv": ["ID_NUMBER", "TIME_KEY"],
         "data/traffic.csv": ["ID_NUMBER", "time_key"],
@@ -23,78 +20,74 @@ def audit():
         "tariff_dictionary.csv": ["tariff_plan_code"],
         "feature_dictionary.csv": ["feature"],
     }
-    tables = {name: pd.read_csv(ROOT / name) for name in keys}
-    result = {"tables": {}}
-    for name, frame in tables.items():
-        item = {"rows": len(frame), "columns": len(frame.columns),
-                "duplicate_rows": int(frame.duplicated().sum()),
-                "duplicate_keys": int(frame.duplicated(keys[name]).sum()),
-                "nulls": {k: int(v) for k, v in frame.isna().sum().items() if v},
-                "nonfinite_numeric": {k: int((~np.isfinite(v.dropna())).sum())
-                                      for k, v in frame.select_dtypes("number").items()
-                                      if (~np.isfinite(v.dropna())).any()}}
-        if "ID_NUMBER" in frame:
-            item["unique_ids"] = int(frame.ID_NUMBER.nunique())
-        for column in ("TIME_KEY", "time_key"):
-            if column in frame:
-                item["months"] = frame[column].value_counts().sort_index().to_dict()
-        result["tables"][name] = item
-    profile, history, tariffs = (tables[n] for n in
-                                 ("customer_profile.csv", "data/change_tariff.csv", "data/dict_tariff.csv"))
-    known = set(tariffs.tariff_plan_code)
-    result["unknown_tariff_rows"] = {
-        f"{name}:{column}": int((frame[column].notna() & ~frame[column].isin(known)).sum())
-        for name, frame in tables.items()
-        for column in ("current_tariff", "tariff_plan_code", "tariff_plan_code_from", "tariff_plan_code_to")
-        if column in frame
+    frames = {name: pd.read_csv(ROOT / name) for name in files}
+    report = {}
+    for name, df in frames.items():
+        report[name] = {
+            "rows": len(df), "columns": len(df.columns),
+            "duplicate_rows": int(df.duplicated().sum()),
+            "duplicate_keys": int(df.duplicated(files[name]).sum()),
+            "missing": {k: int(v) for k, v in df.isna().sum().items() if v},
+        }
+        if "ID_NUMBER" in df:
+            report[name]["unique_ids"] = int(df.ID_NUMBER.nunique())
+            report[name]["profile_id_overlap"] = len(set(df.ID_NUMBER) & set(frames["customer_profile.csv"].ID_NUMBER))
+        for col in ("time_key", "TIME_KEY"):
+            if col in df:
+                report[name]["months"] = sorted(df[col].unique().tolist())
+    p, h = frames["customer_profile.csv"], frames["data/change_tariff.csv"]
+    sizes = p.groupby(["current_tariff", "arpu_segment"], observed=True).size()
+    pairs = h.groupby(["tariff_plan_code_from", "tariff_plan_code_to"]).size()
+    change = h.AVG_ARPU_NEXT_3M / h.AVG_ARPU_PREV_3M.where(h.AVG_ARPU_PREV_3M > 0) - 1
+    report["summary"] = {
+        "predicted_arpu_sum": float(p.predicted_arpu.sum()),
+        "segment_sizes": {str(k): int(v) for k, v in sizes.items()},
+        "arpu_segments": p.arpu_segment.value_counts().to_dict(),
+        "data_segments": p.data_segment.value_counts().to_dict(),
+        "call_segments": p.call_segment.value_counts().to_dict(),
+        "history_pairs": len(pairs), "pair_support_quantiles": pairs.quantile([0, .25, .5, .75, 1]).to_dict(),
+        "history_prev_below_100": int((h.AVG_ARPU_PREV_3M < 100).sum()),
+        "history_prev_nonpositive": int((h.AVG_ARPU_PREV_3M <= 0).sum()),
+        "history_change_quantiles": change.quantile([0, .01, .5, .9, .99, 1]).to_dict(),
+        "history_above_3": int((change > 3).sum()),
+        "profile_lte_above_total": int((p.LTE_DATA_VOLUME > p.DATA_VOLUME).sum()),
+        "traffic_lte_above_total": int((frames["data/traffic.csv"].LTE_DATA_VOLUME > frames["data/traffic.csv"].DATA_VOLUME).sum()),
+        "tariff_dictionaries_match": frames["data/dict_tariff.csv"].sort_values("tariff_plan_code").reset_index(drop=True).equals(frames["tariff_dictionary.csv"].drop(columns="description").sort_values("tariff_plan_code").reset_index(drop=True)),
     }
-    result["id_overlap_with_profile"] = {
-        name: len(set(profile.ID_NUMBER) & set(frame.ID_NUMBER))
-        for name, frame in tables.items() if "ID_NUMBER" in frame and name != "customer_profile.csv"
-    }
-    counts = profile.groupby(["current_tariff", "arpu_segment"], observed=True).size()
-    result["base_cells"] = {"count": len(counts), "min": int(counts.min()),
-                            "median": float(counts.median()), "max": int(counts.max()),
-                            "under_10": int((counts < 10).sum()), "over_5000": int((counts > 5000).sum())}
-    result["segment_counts"] = {c: profile[c].value_counts(dropna=False).rename(index={np.nan: "missing"}).to_dict()
-                                for c in ("arpu_segment", "data_segment", "call_segment")}
-    result["predicted_arpu_sum"] = float(profile.predicted_arpu.sum())
-    result["lte_exceeds_data"] = {
-        name: int((frame.LTE_DATA_VOLUME > frame.DATA_VOLUME).sum())
-        for name, frame in tables.items() if "LTE_DATA_VOLUME" in frame
-    }
-    before, after = history.AVG_ARPU_PREV_3M, history.AVG_ARPU_NEXT_3M
-    ratio = after / before.replace(0, np.nan) - 1
-    pairs = history.groupby(["tariff_plan_code_from", "tariff_plan_code_to"]).size()
-    result["history"] = {
-        "pairs": len(pairs), "possible_directed_pairs": len(known) * (len(known) - 1),
-        "pairs_under_20": int((pairs < 20).sum()), "self_transitions": int((history.tariff_plan_code_from == history.tariff_plan_code_to).sum()),
-        "before_under_100": int((before < 100).sum()), "before_nonpositive": int((before <= 0).sum()),
-        "after_negative": int((after < 0).sum()),
-        "ratio_quantiles_positive_before": ratio[before > 0].quantile([0, .25, .5, .75, .95, 1]).to_dict(),
-        "upsell_over_10pct": int((ratio > .1).sum()), "downsell_under_minus10pct": int((ratio < -.1).sum()),
-    }
-    hypotheses = []
-    candidates = build_candidates(profile, tariffs)
-    ids = set()
-    for candidate in candidates:
-        part = profile
+    tariffs = frames["tariff_dictionary.csv"]
+    stats = _history_stats(ROOT / "data/change_tariff.csv", set(tariffs.tariff_plan_code))
+    report["summary"].update({
+        "eligible_history_records": sum(v[1] for v in stats.values()),
+        "historical_arpu_cells": len(stats),
+        "historical_cells_under_10": sum(v[1] < 10 for v in stats.values()),
+        "candidate_cells_10_to_5000": int(sizes.between(10, 5000).sum()),
+        "candidate_cells_under_10": int((sizes < 10).sum()),
+        "candidate_cells_above_5000": int((sizes > 5000).sum()),
+        "historical_traffic_id_overlap": len(set(h.ID_NUMBER) & set(frames["data/traffic.csv"].ID_NUMBER)),
+        "historical_monthly_id_overlap": len(set(h.ID_NUMBER) & set(frames["data/arpu_monthly.csv"].ID_NUMBER)),
+    })
+    report["hypotheses"] = []
+    for candidate in build_candidates(p, tariffs)[:10]:
+        group = p
         for key, value in candidate.items():
             if key.startswith("filter_"):
-                part = part[part[key.removeprefix("filter_")] == value]
-        ids.update(part.ID_NUMBER)
-        if len(hypotheses) < 8:
-            target = tariffs.set_index("tariff_plan_code").loc[candidate["target_tariff"]]
-            hypotheses.append({**candidate, "audience": len(part),
-                               "predicted_arpu_sum": float(part.predicted_arpu.sum()),
-                               "median_data_mb": float(part.DATA_VOLUME.median()),
-                               "median_offnet_minutes": float(part.OUT_LOC_OFFNET_MIN.median()),
-                               "target_price": float(target.price_tariff),
-                               "target_data_mb": int(target.Data_in_PKG)})
-    result["candidates"] = {"count": len(candidates), "covered_ids": len(ids),
-                             "excluded_ids": len(profile) - len(ids), "first_eight": hypotheses}
-    return result
+                group = group.loc[group[key[7:]] == value]
+        tariff = tariffs.set_index("tariff_plan_code").loc[candidate["target_tariff"]]
+        key = (candidate["filter_current_tariff"], candidate["filter_arpu_segment"], candidate["target_tariff"])
+        prior, n, margin = stats.get(key, (0, 0, 0))
+        report["hypotheses"].append({
+            **candidate, "customers": len(group), "predicted_arpu_sum": float(group.predicted_arpu.sum()),
+            "data_mb_median": _median(group, "DATA_VOLUME"),
+            "offnet_min_median": _median(group, "OUT_LOC_OFFNET_MIN"),
+            "data_package_mb": float(tariff.Data_in_PKG),
+            "offnet_package_min": float(tariff.Min_another_operator_in_PKG),
+            "shared_package_min": float(tariff.Min_another_operator_and_city_in_PKG),
+            "price": float(tariff.price_tariff), "fit": _fit(group, tariff),
+            "caution_margin": margin,
+            "winsorized_change": prior * (n + 20) / n if n else None,
+        })
+    return report
 
 
 if __name__ == "__main__":
-    print(json.dumps(audit(), ensure_ascii=False, indent=2, allow_nan=False))
+    print(json.dumps(audit(), indent=2, ensure_ascii=False, allow_nan=False))

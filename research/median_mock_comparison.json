@@ -1,6 +1,5 @@
 {
   "mode": "mock",
-  "variant": "current",
   "baseline_commit": "7c2257cf53fb045148ac3652c1f68abbe8216415",
   "python": "3.12.14",
   "pandas": "2.3.3",
@@ -14,17 +13,17 @@
         "total_contacts": 6549,
         "n_campaigns": 20,
         "n_pilots": 12,
-        "seconds": 0.397482700063847
+        "seconds": 0.3743666000664234
       },
       "research": {
-        "net_arpu_gain": 3385992.6542630084,
-        "total_cost": 24620.0,
-        "total_contacts": 6155,
+        "net_arpu_gain": 2681878.4730262086,
+        "total_cost": 26148.0,
+        "total_contacts": 6537,
         "n_campaigns": 20,
         "n_pilots": 12,
-        "seconds": 1.3297039999160916
+        "seconds": 1.1605838999385014
       },
-      "delta_net": 109939.45324743912
+      "delta_net": -594174.7279893607
     },
     {
       "seed": 1,
@@ -34,17 +33,17 @@
         "total_contacts": 8269,
         "n_campaigns": 21,
         "n_pilots": 12,
-        "seconds": 0.39214760006871074
+        "seconds": 0.3943273000186309
       },
       "research": {
-        "net_arpu_gain": 3985475.8187063476,
-        "total_cost": 34080.0,
-        "total_contacts": 8520,
-        "n_campaigns": 22,
+        "net_arpu_gain": 2682465.525705104,
+        "total_cost": 26148.0,
+        "total_contacts": 6537,
+        "n_campaigns": 20,
         "n_pilots": 12,
-        "seconds": 1.320885100052692
+        "seconds": 1.063820599927567
       },
-      "delta_net": 257861.4214741788
+      "delta_net": -1045148.8715270646
     },
     {
       "seed": 2,
@@ -54,17 +53,17 @@
         "total_contacts": 6549,
         "n_campaigns": 20,
         "n_pilots": 12,
-        "seconds": 0.3797552000032738
+        "seconds": 0.42870270006824285
       },
       "research": {
-        "net_arpu_gain": 3531227.7994544236,
-        "total_cost": 27200.0,
-        "total_contacts": 6800,
-        "n_campaigns": 21,
+        "net_arpu_gain": 2376537.3430898692,
+        "total_cost": 21848.0,
+        "total_contacts": 5462,
+        "n_campaigns": 20,
         "n_pilots": 12,
-        "seconds": 1.337127699982375
+        "seconds": 1.0065157999051735
       },
-      "delta_net": 256010.48906866089
+      "delta_net": -898679.9672958935
     },
     {
       "seed": 3,
@@ -74,17 +73,17 @@
         "total_contacts": 5904,
         "n_campaigns": 19,
         "n_pilots": 12,
-        "seconds": 0.3800889999838546
+        "seconds": 0.4173570000566542
       },
       "research": {
-        "net_arpu_gain": 3384615.9121775823,
-        "total_cost": 24620.0,
-        "total_contacts": 6155,
+        "net_arpu_gain": 2681361.2657640427,
+        "total_cost": 26148.0,
+        "total_contacts": 6537,
         "n_campaigns": 20,
         "n_pilots": 12,
-        "seconds": 1.3206382000353187
+        "seconds": 1.2431943999836221
       },
-      "delta_net": 256361.14728581905
+      "delta_net": -446893.4991277205
     },
     {
       "seed": 4,
@@ -94,17 +93,17 @@
         "total_contacts": 8879,
         "n_campaigns": 17,
         "n_pilots": 12,
-        "seconds": 0.36432460008654743
+        "seconds": 0.34451969992369413
       },
       "research": {
-        "net_arpu_gain": 3137545.1566726547,
-        "total_cost": 43524.0,
-        "total_contacts": 10881,
-        "n_campaigns": 21,
+        "net_arpu_gain": 2637102.5664066374,
+        "total_cost": 25224.0,
+        "total_contacts": 6306,
+        "n_campaigns": 19,
         "n_pilots": 12,
-        "seconds": 1.3352634999901056
+        "seconds": 0.9726022999966517
       },
-      "delta_net": 919302.4645115323
+      "delta_net": 418859.8742455151
     },
     {
       "seed": 5,
@@ -114,17 +113,17 @@
         "total_contacts": 6659,
         "n_campaigns": 20,
         "n_pilots": 12,
-        "seconds": 0.4008873999118805
+        "seconds": 0.3429836999857798
       },
       "research": {
-        "net_arpu_gain": 3530646.0602930887,
-        "total_cost": 27200.0,
-        "total_contacts": 6800,
-        "n_campaigns": 21,
+        "net_arpu_gain": 2230913.7192737143,
+        "total_cost": 19268.0,
+        "total_contacts": 4817,
+        "n_campaigns": 19,
         "n_pilots": 12,
-        "seconds": 1.3837476000189781
+        "seconds": 1.1179451000643894
       },
-      "delta_net": 301750.1986803273
+      "delta_net": -997982.142339047
     },
     {
       "seed": 6,
@@ -134,17 +133,17 @@
         "total_contacts": 7042,
         "n_campaigns": 20,
         "n_pilots": 12,
-        "seconds": 0.42035949998535216
+        "seconds": 0.4085217999527231
       },
       "research": {
-        "net_arpu_gain": 3182873.1889272565,
-        "total_cost": 29172.0,
-        "total_contacts": 7293,
-        "n_campaigns": 21,
+        "net_arpu_gain": 2556216.9143647617,
+        "total_cost": 33288.0,
+        "total_contacts": 8322,
+        "n_campaigns": 22,
         "n_pilots": 12,
-        "seconds": 1.374818000011146
+        "seconds": 1.1227806999813765
       },
-      "delta_net": 254877.9446292147
+      "delta_net": -371778.3299332801
     },
     {
       "seed": 7,
@@ -154,17 +153,17 @@
         "total_contacts": 6549,
         "n_campaigns": 20,
         "n_pilots": 12,
-        "seconds": 0.40821639995556325
+        "seconds": 0.36008030001539737
       },
       "research": {
-        "net_arpu_gain": 3385168.8101324886,
-        "total_cost": 24620.0,
-        "total_contacts": 6155,
-        "n_campaigns": 20,
+        "net_arpu_gain": 2509156.0218031853,
+        "total_cost": 28380.0,
+        "total_contacts": 7095,
+        "n_campaigns": 21,
         "n_pilots": 12,
-        "seconds": 1.305241800029762
+        "seconds": 1.0203461999772117
       },
-      "delta_net": 112947.68378847465
+      "delta_net": -763065.1045408286
     },
     {
       "seed": 8,
@@ -174,17 +173,17 @@
         "total_contacts": 5055,
         "n_campaigns": 19,
         "n_pilots": 12,
-        "seconds": 0.3747076999861747
+        "seconds": 0.35308250004891306
       },
       "research": {
-        "net_arpu_gain": 2744824.3520074147,
-        "total_cost": 22292.0,
-        "total_contacts": 5573,
+        "net_arpu_gain": 2374281.847261428,
+        "total_cost": 21848.0,
+        "total_contacts": 5462,
         "n_campaigns": 20,
         "n_pilots": 12,
-        "seconds": 1.3136637000134215
+        "seconds": 1.0608575000660494
       },
-      "delta_net": 862752.6348803767
+      "delta_net": 492210.13013438997
     },
     {
       "seed": 9,
@@ -194,17 +193,17 @@
         "total_contacts": 10158,
         "n_campaigns": 20,
         "n_pilots": 12,
-        "seconds": 0.3715154000092298
+        "seconds": 0.3881792000029236
       },
       "research": {
-        "net_arpu_gain": 2191729.4338217955,
-        "total_cost": 37248.0,
-        "total_contacts": 9312,
-        "n_campaigns": 19,
+        "net_arpu_gain": 2327695.640466354,
+        "total_cost": 22288.0,
+        "total_contacts": 5572,
+        "n_campaigns": 20,
         "n_pilots": 12,
-        "seconds": 1.2583789000054821
+        "seconds": 1.05646849994082
       },
-      "delta_net": -304392.11813207157
+      "delta_net": -168425.91148751322
     },
     {
       "seed": 42,
@@ -214,17 +213,17 @@
         "total_contacts": 5637,
         "n_campaigns": 19,
         "n_pilots": 12,
-        "seconds": 0.36843180004507303
+        "seconds": 0.35813149996101856
       },
       "research": {
-        "net_arpu_gain": 2678812.6194935995,
-        "total_cost": 20532.0,
-        "total_contacts": 5133,
-        "n_campaigns": 19,
+        "net_arpu_gain": 2120877.3341870774,
+        "total_cost": 24640.0,
+        "total_contacts": 6160,
+        "n_campaigns": 20,
         "n_pilots": 12,
-        "seconds": 1.26766959996894
+        "seconds": 1.040522100054659
       },
-      "delta_net": 159081.89321013773
+      "delta_net": -398853.3920963844
     }
   ]
 }

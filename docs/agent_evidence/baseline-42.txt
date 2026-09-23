@@ -1,0 +1,38 @@
+=== Результат команды: local ===
+Статус: PASS
+Baseline ARPU (без кампаний):      150,641,084
+Прирост ARPU (gross):                2,542,279
+Затраты на коммуникацию:                22,548
+ЧИСТЫЙ РЕЗУЛЬТАТ (net):              2,519,731   (+1.673% к baseline)
+ARPU после кампаний:               153,160,815
+
+Кампаний: 19  |  контактов: 5,637  |  уникальных абонентов: 4,587 (19.6%)
+Средний чистый прирост на абонента: 549.3
+ROI (gross lift / затраты): 112.75
+Risk score (% абонентов с отрицательным эффектом): 0.0%
+Бюджет: 22,548 из 100,000 у.е. (22.5%)
+
+По кампаниям (gross, до дедупликации между кампаниями):
+  - pilot_1 [sms]: контактов=150  cost=600  gross_lift=45,104  negative=0
+  - pilot_2 [sms]: контактов=150  cost=600  gross_lift=111,686  negative=0
+  - pilot_3 [sms]: контактов=150  cost=600  gross_lift=118,439  negative=0
+  - pilot_4 [sms]: контактов=150  cost=600  gross_lift=142,151  negative=0
+  - pilot_5 [sms]: контактов=150  cost=600  gross_lift=45,952  negative=0
+  - pilot_6 [sms]: контактов=150  cost=600  gross_lift=14,032  negative=0
+  - pilot_7 [sms]: контактов=150  cost=600  gross_lift=110,874  negative=0
+  - pilot_8 [sms]: контактов=150  cost=600  gross_lift=2,745  negative=0
+  - pilot_9 [sms]: контактов=150  cost=600  gross_lift=24,082  negative=0
+  - pilot_10 [sms]: контактов=150  cost=600  gross_lift=113,235  negative=0
+  - pilot_11 [sms]: контактов=150  cost=600  gross_lift=76,907  negative=0
+  - pilot_12 [sms]: контактов=150  cost=600  gross_lift=63,950  negative=0
+  - baseline_1 [sms]: контактов=1,227  cost=4,908  gross_lift=912,020  negative=0
+  - baseline_2 [sms]: контактов=299  cost=1,196  gross_lift=233,149  negative=0
+  - baseline_3 [sms]: контактов=342  cost=1,368  gross_lift=271,171  negative=0
+  - baseline_4 [sms]: контактов=457  cost=1,828  gross_lift=412,010  negative=0
+  - baseline_5 [sms]: контактов=387  cost=1,548  gross_lift=196,589  negative=0
+  - baseline_6 [sms]: контактов=755  cost=3,020  gross_lift=127,556  negative=0
+  - baseline_7 [sms]: контактов=370  cost=1,480  gross_lift=163,512  negative=0
+
+Пилотов проведено: 12 из 20
+Осталось бюджета: 92,800 из 100,000
+Осталось охвата:  13,200 из 15,000

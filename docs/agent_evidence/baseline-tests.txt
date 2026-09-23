@@ -1,0 +1,13 @@
+test_negative_pilots_have_explicit_fallback (test_agent.AgentTests.test_negative_pilots_have_explicit_fallback) ... ok
+test_pilot_observations_change_choice (test_agent.AgentTests.test_pilot_observations_change_choice) ... ok
+test_reserves_resources_for_final_campaign (test_agent.AgentTests.test_reserves_resources_for_final_campaign) ... ok
+test_campaigns_and_all_contacts_fit (test_contract.ContractTests.test_campaigns_and_all_contacts_fit) ... ok
+test_nonfinite_metrics_are_json_null (test_contract.ContractTests.test_nonfinite_metrics_are_json_null) ... ok
+test_original_materials_unchanged (test_contract.ContractTests.test_original_materials_unchanged) ... ok
+test_report_matches_real_evaluator (test_contract.ContractTests.test_report_matches_real_evaluator) ... ok
+test_submission_reproducible_and_matches_file (test_contract.ContractTests.test_submission_reproducible_and_matches_file) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 2.727s
+
+OK

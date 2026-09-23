@@ -1,0 +1,229 @@
+{
+  "mode": "mock",
+  "baseline_commit": "7c2257cf53fb045148ac3652c1f68abbe8216415",
+  "python": "3.12.14",
+  "pandas": "2.3.3",
+  "numpy": "2.5.3",
+  "rows": [
+    {
+      "seed": 0,
+      "baseline": {
+        "net_arpu_gain": 3276053.2010155693,
+        "total_cost": 26196.0,
+        "total_contacts": 6549,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 0.3743666000664234
+      },
+      "research": {
+        "net_arpu_gain": 2681878.4730262086,
+        "total_cost": 26148.0,
+        "total_contacts": 6537,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 1.1605838999385014
+      },
+      "delta_net": -594174.7279893607
+    },
+    {
+      "seed": 1,
+      "baseline": {
+        "net_arpu_gain": 3727614.397232169,
+        "total_cost": 33076.0,
+        "total_contacts": 8269,
+        "n_campaigns": 21,
+        "n_pilots": 12,
+        "seconds": 0.3943273000186309
+      },
+      "research": {
+        "net_arpu_gain": 2682465.525705104,
+        "total_cost": 26148.0,
+        "total_contacts": 6537,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 1.063820599927567
+      },
+      "delta_net": -1045148.8715270646
+    },
+    {
+      "seed": 2,
+      "baseline": {
+        "net_arpu_gain": 3275217.3103857627,
+        "total_cost": 26196.0,
+        "total_contacts": 6549,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 0.42870270006824285
+      },
+      "research": {
+        "net_arpu_gain": 2376537.3430898692,
+        "total_cost": 21848.0,
+        "total_contacts": 5462,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 1.0065157999051735
+      },
+      "delta_net": -898679.9672958935
+    },
+    {
+      "seed": 3,
+      "baseline": {
+        "net_arpu_gain": 3128254.764891763,
+        "total_cost": 23616.0,
+        "total_contacts": 5904,
+        "n_campaigns": 19,
+        "n_pilots": 12,
+        "seconds": 0.4173570000566542
+      },
+      "research": {
+        "net_arpu_gain": 2681361.2657640427,
+        "total_cost": 26148.0,
+        "total_contacts": 6537,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 1.2431943999836221
+      },
+      "delta_net": -446893.4991277205
+    },
+    {
+      "seed": 4,
+      "baseline": {
+        "net_arpu_gain": 2218242.6921611223,
+        "total_cost": 35516.0,
+        "total_contacts": 8879,
+        "n_campaigns": 17,
+        "n_pilots": 12,
+        "seconds": 0.34451969992369413
+      },
+      "research": {
+        "net_arpu_gain": 2637102.5664066374,
+        "total_cost": 25224.0,
+        "total_contacts": 6306,
+        "n_campaigns": 19,
+        "n_pilots": 12,
+        "seconds": 0.9726022999966517
+      },
+      "delta_net": 418859.8742455151
+    },
+    {
+      "seed": 5,
+      "baseline": {
+        "net_arpu_gain": 3228895.8616127614,
+        "total_cost": 26636.0,
+        "total_contacts": 6659,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 0.3429836999857798
+      },
+      "research": {
+        "net_arpu_gain": 2230913.7192737143,
+        "total_cost": 19268.0,
+        "total_contacts": 4817,
+        "n_campaigns": 19,
+        "n_pilots": 12,
+        "seconds": 1.1179451000643894
+      },
+      "delta_net": -997982.142339047
+    },
+    {
+      "seed": 6,
+      "baseline": {
+        "net_arpu_gain": 2927995.244298042,
+        "total_cost": 28168.0,
+        "total_contacts": 7042,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 0.4085217999527231
+      },
+      "research": {
+        "net_arpu_gain": 2556216.9143647617,
+        "total_cost": 33288.0,
+        "total_contacts": 8322,
+        "n_campaigns": 22,
+        "n_pilots": 12,
+        "seconds": 1.1227806999813765
+      },
+      "delta_net": -371778.3299332801
+    },
+    {
+      "seed": 7,
+      "baseline": {
+        "net_arpu_gain": 3272221.126344014,
+        "total_cost": 26196.0,
+        "total_contacts": 6549,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 0.36008030001539737
+      },
+      "research": {
+        "net_arpu_gain": 2509156.0218031853,
+        "total_cost": 28380.0,
+        "total_contacts": 7095,
+        "n_campaigns": 21,
+        "n_pilots": 12,
+        "seconds": 1.0203461999772117
+      },
+      "delta_net": -763065.1045408286
+    },
+    {
+      "seed": 8,
+      "baseline": {
+        "net_arpu_gain": 1882071.717127038,
+        "total_cost": 20220.0,
+        "total_contacts": 5055,
+        "n_campaigns": 19,
+        "n_pilots": 12,
+        "seconds": 0.35308250004891306
+      },
+      "research": {
+        "net_arpu_gain": 2374281.847261428,
+        "total_cost": 21848.0,
+        "total_contacts": 5462,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 1.0608575000660494
+      },
+      "delta_net": 492210.13013438997
+    },
+    {
+      "seed": 9,
+      "baseline": {
+        "net_arpu_gain": 2496121.551953867,
+        "total_cost": 40632.0,
+        "total_contacts": 10158,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 0.3881792000029236
+      },
+      "research": {
+        "net_arpu_gain": 2327695.640466354,
+        "total_cost": 22288.0,
+        "total_contacts": 5572,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 1.05646849994082
+      },
+      "delta_net": -168425.91148751322
+    },
+    {
+      "seed": 42,
+      "baseline": {
+        "net_arpu_gain": 2519730.726283462,
+        "total_cost": 22548.0,
+        "total_contacts": 5637,
+        "n_campaigns": 19,
+        "n_pilots": 12,
+        "seconds": 0.35813149996101856
+      },
+      "research": {
+        "net_arpu_gain": 2120877.3341870774,
+        "total_cost": 24640.0,
+        "total_contacts": 6160,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 1.040522100054659
+      },
+      "delta_net": -398853.3920963844
+    }
+  ]
+}

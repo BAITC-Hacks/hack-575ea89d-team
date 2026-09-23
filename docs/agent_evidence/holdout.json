@@ -1,0 +1,172 @@
+[
+  {
+    "seed": 20,
+    "baseline": {
+      "net_arpu_gain": 3584745.372644066,
+      "total_cost": 30496.0,
+      "total_contacts": 7624,
+      "n_pilots": 12,
+      "seconds": 0.6435899469997821
+    },
+    "adaptive": {
+      "net_arpu_gain": 3685515.743357609,
+      "total_cost": 62088.0,
+      "total_contacts": 12537,
+      "n_pilots": 20,
+      "seconds": 1.0821691089986416
+    }
+  },
+  {
+    "seed": 21,
+    "baseline": {
+      "net_arpu_gain": 2786889.932226437,
+      "total_cost": 25588.0,
+      "total_contacts": 6397,
+      "n_pilots": 12,
+      "seconds": 0.6182381010003155
+    },
+    "adaptive": {
+      "net_arpu_gain": 3632519.173023999,
+      "total_cost": 88960.0,
+      "total_contacts": 12548,
+      "n_pilots": 20,
+      "seconds": 1.0085503280006378
+    }
+  },
+  {
+    "seed": 22,
+    "baseline": {
+      "net_arpu_gain": 2488339.048343881,
+      "total_cost": 22828.0,
+      "total_contacts": 5707,
+      "n_pilots": 12,
+      "seconds": 0.6469053230011923
+    },
+    "adaptive": {
+      "net_arpu_gain": 3463159.5155356186,
+      "total_cost": 51208.0,
+      "total_contacts": 12202,
+      "n_pilots": 20,
+      "seconds": 1.0495015309988958
+    }
+  },
+  {
+    "seed": 23,
+    "baseline": {
+      "net_arpu_gain": 3374301.51073883,
+      "total_cost": 29216.0,
+      "total_contacts": 7304,
+      "n_pilots": 12,
+      "seconds": 0.6246883470012108
+    },
+    "adaptive": {
+      "net_arpu_gain": 4118314.2429653285,
+      "total_cost": 68082.0,
+      "total_contacts": 10379,
+      "n_pilots": 20,
+      "seconds": 1.034670303999519
+    }
+  },
+  {
+    "seed": 24,
+    "baseline": {
+      "net_arpu_gain": 2933280.006926144,
+      "total_cost": 28168.0,
+      "total_contacts": 7042,
+      "n_pilots": 12,
+      "seconds": 0.6931253639995703
+    },
+    "adaptive": {
+      "net_arpu_gain": 3679549.3423111103,
+      "total_cost": 62232.0,
+      "total_contacts": 13411,
+      "n_pilots": 20,
+      "seconds": 1.019313623999551
+    }
+  },
+  {
+    "seed": 25,
+    "baseline": {
+      "net_arpu_gain": 3261086.2462090906,
+      "total_cost": 30148.0,
+      "total_contacts": 7537,
+      "n_pilots": 12,
+      "seconds": 0.632401356999253
+    },
+    "adaptive": {
+      "net_arpu_gain": 4384962.523305813,
+      "total_cost": 92890.0,
+      "total_contacts": 9922,
+      "n_pilots": 20,
+      "seconds": 1.0299373870002455
+    }
+  },
+  {
+    "seed": 26,
+    "baseline": {
+      "net_arpu_gain": 3168529.050577494,
+      "total_cost": 28668.0,
+      "total_contacts": 7167,
+      "n_pilots": 12,
+      "seconds": 0.587497431999509
+    },
+    "adaptive": {
+      "net_arpu_gain": 3353322.5821838677,
+      "total_cost": 61772.0,
+      "total_contacts": 13480,
+      "n_pilots": 20,
+      "seconds": 1.021598740000627
+    }
+  },
+  {
+    "seed": 27,
+    "baseline": {
+      "net_arpu_gain": 3728545.279238977,
+      "total_cost": 33076.0,
+      "total_contacts": 8269,
+      "n_pilots": 12,
+      "seconds": 0.7061328409999987
+    },
+    "adaptive": {
+      "net_arpu_gain": 4121830.7303067227,
+      "total_cost": 67180.0,
+      "total_contacts": 9085,
+      "n_pilots": 20,
+      "seconds": 1.0515340769998147
+    }
+  },
+  {
+    "seed": 28,
+    "baseline": {
+      "net_arpu_gain": 3127570.0844659954,
+      "total_cost": 23616.0,
+      "total_contacts": 5904,
+      "n_pilots": 12,
+      "seconds": 0.6217982420002954
+    },
+    "adaptive": {
+      "net_arpu_gain": 3798113.3912784867,
+      "total_cost": 63316.0,
+      "total_contacts": 9288,
+      "n_pilots": 20,
+      "seconds": 1.0412873330005823
+    }
+  },
+  {
+    "seed": 29,
+    "baseline": {
+      "net_arpu_gain": 3128599.1589208376,
+      "total_cost": 23616.0,
+      "total_contacts": 5904,
+      "n_pilots": 12,
+      "seconds": 0.609750253999664
+    },
+    "adaptive": {
+      "net_arpu_gain": 3913245.183721711,
+      "total_cost": 64068.0,
+      "total_contacts": 9933,
+      "n_pilots": 20,
+      "seconds": 1.0637702509993687
+    }
+  }
+]

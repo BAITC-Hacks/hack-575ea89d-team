@@ -17,12 +17,13 @@ def _parse_time(value: str | None) -> datetime | None:
 def get_complaints(area: str | None = None, time_window_minutes: int = 60) -> dict:
     """Summarize complaints by tower; do not send thousands of raw texts to the model."""
     rows = data_service.read_json("complaints.json")
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=time_window_minutes)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=time_window_minutes)
     matches = [
         row for row in rows
         if (area is None or row.get("area") == area)
         and (timestamp := _parse_time(row.get("timestamp") or row.get("time"))) is not None
-        and timestamp >= cutoff
+        and cutoff <= timestamp <= now
     ]
     by_tower = Counter(row.get("tower_id") for row in matches if row.get("tower_id") is not None)
     clusters = []
@@ -52,7 +53,12 @@ def get_network_data(tower_id: int) -> dict:
     if tower is None:
         raise ValueError(f"Unknown tower_id: {tower_id}")
     history = [item for item in data_service.get_incidents() if item["tower_id"] == tower_id]
-    return {"tower": tower, "incidents": history, "source": "synthetic_network_data"}
+    recommendations = {}
+    for item in history:
+        _, team, priority = incident_service._recommended(tower, item["complaints_count"])
+        recommendations[item["id"]] = {"team": team, "priority": priority}
+    return {"tower": tower, "incidents": history, "recommendations": recommendations,
+            "source": "synthetic_network_data"}
 
 
 def calculate_solution(tower_id: int) -> dict:

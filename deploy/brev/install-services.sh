@@ -3,6 +3,14 @@
 set -euo pipefail
 project_dir=$(cd "$(dirname "$0")/../.." && pwd)
 service_user=$(id -un)
+demo_lines=""
+if [[ "${1:-}" == "--demo" ]]; then
+  demo_lines="Environment=NETWORK_DATA_DIR=$project_dir/backend/.demo-data
+ExecStartPre=$project_dir/backend/.venv/bin/python $project_dir/scripts/generate_demo.py --output $project_dir/backend/.demo-data"
+elif [[ -n "${1:-}" ]]; then
+  echo 'Usage: install-services.sh [--demo]' >&2
+  exit 1
+fi
 if [[ "$project_dir" == *[[:space:]]* ]]; then
   echo 'Use a project directory without spaces.' >&2
   exit 1
@@ -24,6 +32,7 @@ Wants=network-online.target
 [Service]
 User=$service_user
 WorkingDirectory=$project_dir/backend
+$demo_lines
 ExecStart=$project_dir/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 Restart=on-failure
 RestartSec=3

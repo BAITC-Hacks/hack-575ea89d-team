@@ -8,3 +8,7 @@
 node_modules/
 dist/
 *.sqlite3
+
+backend/.demo-data/
+.pytest_cache/
+*.sqlite3-*

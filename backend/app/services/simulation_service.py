@@ -11,7 +11,7 @@ def simulate(tower_id: int, budget_kzt: int) -> dict:
         options.append({
             **solution,
             "available": solution["cost_kzt"] <= budget_kzt,
-            # Placeholder simulation; Абыл will document/replace the formula.
+            # Synthetic capacity-only model; assumptions in docs/DEMO_MODEL.md.
             "expected_load_pct": round(tower["current_load_pct"] / (1 + capacity_gain / 100)),
             "affected_users_improved": round(tower["affected_users"] * min(capacity_gain / 70, 1)),
         })

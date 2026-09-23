@@ -1,6 +1,9 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = { base: 'http://localhost:8000', towers: [], incidents: [], incident: null, towerId: null, options: [], simulation: null, choice: null, busy: false, version: 0, timer: null, lastUpdatedAt: null, connection: 'waiting' };
+const pageUrl = new URL(location.href);
+const defaultApi = pageUrl.port === '5173' ? `${pageUrl.protocol}//${pageUrl.hostname}:8000` : pageUrl.origin;
+const apiStorageKey = `network-dashboard:api:v2:${pageUrl.origin}`;
+const state = { base: defaultApi, towers: [], incidents: [], incident: null, towerId: null, options: [], simulation: null, choice: null, busy: false, version: 0, timer: null, lastUpdatedAt: null, connection: 'waiting' };
 const labels = { critical:'Критический', high:'Высокий', medium:'Средний', investigating:'Диагностика', open:'Открыт', pending:'Ожидает выполнения', network_congestion:'Перегрузка сети', weak_coverage:'Слабое покрытие', normal:'Норма', degraded:'Ухудшение связи', coverage_issue:'Проблема покрытия', completed:'Выполнено', closed:'Закрыт', resolved:'Решён', low:'Низкий', upgrade_existing:'Модернизация вышки', additional_equipment:'Доп. оборудование', new_tower:'Новая вышка' };
 const tr = value => labels[value] || value || '—';
 const fmt = value => typeof value === 'number' && Number.isFinite(value) ? new Intl.NumberFormat('ru-RU').format(value) : '—';
@@ -23,7 +26,7 @@ function validateBase(value) {
   return url.href.replace(/\/$/,'');
 }
 function restoreBase() {
-  try { const saved = localStorage.getItem('network-dashboard:api:v1'); if (saved) state.base = validateBase(saved); } catch { /* Use the default API if storage is unavailable or invalid. */ }
+  try { const saved = localStorage.getItem(apiStorageKey); if (saved) state.base = validateBase(saved); } catch { /* Use the default API if storage is unavailable or invalid. */ }
   $('api-url').value = state.base;
 }
 function readPreferences() {
@@ -143,7 +146,7 @@ async function api(path, payload) {
   } catch (error) {
     if (error.name === 'AbortError' || error instanceof TypeError) { state.connection = 'offline'; renderFreshness(); }
     if (error.name === 'AbortError') throw Object.assign(new Error('API не ответил за 45 секунд. При создании work order проверьте результат на сервере перед повтором.'),{connection:'offline'});
-    if (error instanceof TypeError) throw Object.assign(new Error('Нет соединения с API. Проверьте адрес, запуск backend и порт frontend 5173.'),{connection:'offline'});
+    if (error instanceof TypeError) throw Object.assign(new Error('Нет соединения с API. Запустите python run.py и откройте указанный адрес dashboard.'),{connection:'offline'});
     throw error;
   } finally { clearTimeout(timeout); }
 }
@@ -241,11 +244,11 @@ function setIncident(item) {
   state.incident = item; state.towerId = item?.tower_id ?? null; invalidate();
   $('work-order').hidden = true; clearAnalysis(); renderIncidents(); renderDetail(); renderMap(); renderTower();
   const tower = state.towers.find(t=>t.id === state.towerId); $('area').value = tower?.area || '';
-  updateIncidentLink(); savePreferences();
+  updateIncidentLink(); savePreferences(); $('order-list').replaceChildren();
 }
 async function selectIncident(id) {
   const data = await api(`/incidents/${encodeURIComponent(id)}`); if (!data.incident) throw new Error('API не вернул incident.');
-  setIncident(data.incident); await simulate();
+  setIncident(data.incident); await simulate(); await loadOrders();
 }
 async function load() {
   const preferences = readPreferences(), requested = requestedIncident();
@@ -335,13 +338,14 @@ $('connection-form').onsubmit = event => {
       savePreferences(); state.base = nextBase; state.lastUpdatedAt = null; state.incident = null;
       const page = new URL(location.href); page.searchParams.delete('incident'); history.replaceState(null,'',page);
     }
-    try { localStorage.setItem('network-dashboard:api:v1',state.base); } catch { /* Optional persistence. */ }
+    try { localStorage.setItem(apiStorageKey,state.base); } catch { /* Optional persistence. */ }
     run(load);
   } catch(error) { fail(error); }
 };
 $('analysis-form').onsubmit = event => { event.preventDefault(); run(async () => {
   clearTimeout(state.timer); say('Выполняется анализ…');
   const payload = {time_window_minutes:Number($('window').value)}; if ($('area').value.trim()) payload.area = $('area').value.trim(); if ($('complaint').value.trim()) payload.complaint_text = $('complaint').value.trim();
+  if (state.incident && (!payload.area || payload.area === areaOf(state.incident))) payload.incident_id = state.incident.id;
   try { const data = await api('/analyze',payload);
     if (data.incident === null) { setIncident(null); $('area').value = payload.area || ''; renderAnalysis(data); $('incident-details').replaceChildren(el('p','В выбранном районе подходящих инцидентов не найдено.')); say('Анализ завершён. Инцидентов не найдено.'); return; }
     if (!data.incident) throw new Error('API не вернул результат анализа.');
@@ -361,7 +365,7 @@ $('create-order').onclick = () => run(async () => {
   const data = await api('/action',{incident_id:item.id,tower_id:item.tower_id,solution_type:choice.solution_type,budget_kzt:sim.budget});
   if (!data.work_order) throw new Error('API не вернул work_order. Проверьте заказ на сервере перед повтором.');
   const order = data.work_order; state.choice = null; $('confirmation').hidden = true;
-  renderOrder($('work-order'),order); $('order-id').value = order.id; say('Заказ создан и сохранён на сервере.'); renderOptions();
+  renderOrder($('work-order'),order); $('order-id').value = order.id; say(data.created === false ? 'Этот заказ уже существует. Показан сохранённый заказ без создания дубля.' : 'Заказ создан и сохранён на сервере.'); renderOptions(); await loadOrders();
 });
 $('order-form').onsubmit = event => { event.preventDefault(); run(async () => { $('saved-order').hidden = true; const data = await api(`/work-orders/${encodeURIComponent($('order-id').value.trim())}`); if (!data.work_order) throw new Error('API не вернул work_order.'); renderOrder($('saved-order'),data.work_order); say('Заказ прочитан из backend.'); }); };
 
@@ -455,3 +459,27 @@ setInterval(renderFreshness,30000);
 restoreBase();
 renderFreshness();
 run(load);
+
+
+async function loadOrders() {
+  const root = $('order-list');
+  const suffix = state.incident ? `?incident_id=${encodeURIComponent(state.incident.id)}` : '';
+  try {
+    const result = await api('/work-orders' + suffix);
+    if (!Array.isArray(result.items)) throw new Error('API не вернул список заказов.');
+    root.replaceChildren();
+    if (!result.items.length) root.append(el('p','Сохранённых заказов для этого инцидента пока нет.','muted'));
+    for (const order of result.items) {
+      const row = el('div',undefined,'work-order'); renderOrder(row,order); root.append(row);
+    }
+  } catch (error) {
+    root.replaceChildren(el('p','Список заказов недоступен. Обновите backend или найдите заказ по номеру.','muted'));
+  }
+}
+$('refresh-orders').onclick = () => run(loadOrders);
+$('reset-api').onclick = () => {
+  if (state.busy) return;
+  state.base = defaultApi; $('api-url').value = defaultApi;
+  try { localStorage.removeItem(apiStorageKey); } catch { /* Optional storage. */ }
+  run(load);
+};

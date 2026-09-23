@@ -1,7 +1,5 @@
 import json
-from pathlib import Path
-
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+from app.config import DATA_DIR
 
 
 def read_json(name: str):

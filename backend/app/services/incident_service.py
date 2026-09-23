@@ -2,13 +2,13 @@
 
 import json
 import sqlite3
-from pathlib import Path
-
-DB_PATH = Path(__file__).resolve().parents[2] / "data" / "state.sqlite3"
+from contextlib import closing
+from app.config import DB_PATH
 
 
 def _connect() -> sqlite3.Connection:
-    connection = sqlite3.connect(DB_PATH)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(DB_PATH, timeout=10)
     connection.row_factory = sqlite3.Row
     connection.execute("""
         CREATE TABLE IF NOT EXISTS incident_records (
@@ -20,13 +20,13 @@ def _connect() -> sqlite3.Connection:
 
 
 def get_saved_incidents() -> list[dict]:
-    with _connect() as connection:
+    with closing(_connect()) as connection, connection:
         rows = connection.execute("SELECT payload_json FROM incident_records").fetchall()
     return [json.loads(row["payload_json"]) for row in rows]
 
 
 def _save(incident: dict) -> dict:
-    with _connect() as connection:
+    with closing(_connect()) as connection, connection:
         connection.execute(
             "INSERT OR REPLACE INTO incident_records (id, payload_json) VALUES (?, ?)",
             (incident["id"], json.dumps(incident, ensure_ascii=False)),
@@ -51,33 +51,35 @@ def _recommended(tower: dict, complaints_count: int) -> tuple[str, str, str]:
 
 
 def create_incident(tower_id: int, time_window_minutes: int = 60) -> dict:
-    from app.services import agent_tools, data_service
+    with closing(_connect()) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        from app.services import agent_tools, data_service
 
-    tower = data_service.get_tower(tower_id)
-    if tower is None:
-        raise ValueError("Unknown tower_id")
-    existing = next((item for item in data_service.get_incidents() if item["tower_id"] == tower_id), None)
-    if existing is not None:
-        return {"incident": existing, "created": False}
-    clusters = agent_tools.get_complaints(tower["area"], time_window_minutes)["clusters"]
-    complaints_count = next((item["complaints_count"] for item in clusters if item["tower_id"] == tower_id), 0)
-    if complaints_count < 10:
-        raise ValueError("At least 10 recent complaints are required to create an incident")
-    cause, team, priority = _recommended(tower, complaints_count)
-    ids = [int(item["id"].split("-")[-1]) for item in data_service.get_incidents()]
-    incident = {
-        "id": f"INC-{max(ids, default=1041) + 1}",
-        "status": "investigating",
-        "priority": priority,
-        "complaints_count": complaints_count,
-        "affected_users": tower["affected_users"],
-        "tower_id": tower_id,
-        "probable_cause": cause,
-        "assigned_team": team,
-        "reason": f"Жалобы в зоне Tower #{tower_id} совпадают с состоянием сети.",
-        "recurring_days": 0,
-    }
-    return {"incident": _save(incident), "created": True}
+        tower = data_service.get_tower(tower_id)
+        if tower is None:
+            raise ValueError("Unknown tower_id")
+        existing = next((item for item in data_service.get_incidents() if item["tower_id"] == tower_id), None)
+        if existing is not None:
+            return {"incident": existing, "created": False}
+        clusters = agent_tools.get_complaints(tower["area"], time_window_minutes)["clusters"]
+        complaints_count = next((item["complaints_count"] for item in clusters if item["tower_id"] == tower_id), 0)
+        if complaints_count < 10:
+            raise ValueError("At least 10 recent complaints are required to create an incident")
+        cause, team, priority = _recommended(tower, complaints_count)
+        ids = [int(item["id"].split("-")[-1]) for item in data_service.get_incidents()]
+        incident = {
+            "id": f"INC-{max(ids, default=1041) + 1}",
+            "status": "investigating",
+            "priority": priority,
+            "complaints_count": complaints_count,
+            "affected_users": tower["affected_users"],
+            "tower_id": tower_id,
+            "probable_cause": cause,
+            "assigned_team": team,
+            "reason": f"Жалобы в зоне Tower #{tower_id} совпадают с состоянием сети.",
+            "recurring_days": 0,
+        }
+        return {"incident": _save_in_connection(connection, incident), "created": True}
 
 
 def assign_team(incident_id: str, team: str) -> dict:
@@ -105,3 +107,9 @@ def update_priority(incident_id: str, priority: str) -> dict:
         raise ValueError(f"Priority must be {expected} for the current metrics")
     incident = dict(incident, priority=priority)
     return {"incident": _save(incident)}
+
+
+def _save_in_connection(connection: sqlite3.Connection, incident: dict) -> dict:
+    connection.execute("INSERT INTO incident_records (id, payload_json) VALUES (?, ?)",
+                       (incident["id"], json.dumps(incident, ensure_ascii=False)))
+    return incident

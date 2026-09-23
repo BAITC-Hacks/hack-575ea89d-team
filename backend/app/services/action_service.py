@@ -2,15 +2,15 @@
 
 import sqlite3
 from datetime import datetime, timezone
-from pathlib import Path
+from contextlib import closing
+from app.config import DB_PATH
 
 from app.services import data_service
 
-DB_PATH = Path(__file__).resolve().parents[2] / "data" / "state.sqlite3"
-
 
 def _connect() -> sqlite3.Connection:
-    connection = sqlite3.connect(DB_PATH)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(DB_PATH, timeout=10)
     connection.row_factory = sqlite3.Row
     connection.execute("""
         CREATE TABLE IF NOT EXISTS work_orders (
@@ -26,6 +26,7 @@ def _connect() -> sqlite3.Connection:
             created_at TEXT NOT NULL
         )
     """)
+    connection.execute("CREATE INDEX IF NOT EXISTS work_orders_lookup ON work_orders (incident_id, tower_id, solution_type, status)")
     return connection
 
 
@@ -61,7 +62,22 @@ def create_work_order(payload: dict) -> dict:
 
     task = f"{solution['name']} Tower #{payload['tower_id']}"
     created_at = datetime.now(timezone.utc).isoformat()
-    with _connect() as connection:
+    with closing(_connect()) as connection, connection:
+        # Serialize the lookup and insert, including requests from other workers.
+        # Keep historical duplicates readable; return the oldest pending order.
+        connection.execute("BEGIN IMMEDIATE")
+        existing = connection.execute(
+            "SELECT * FROM work_orders WHERE incident_id = ? AND tower_id = ? "
+            "AND solution_type = ? AND status = 'pending' ORDER BY id LIMIT 1",
+            (incident["id"], payload["tower_id"], solution["solution_type"]),
+        ).fetchone()
+        if existing is not None:
+            if existing["budget_kzt"] > payload["budget_kzt"]:
+                raise ValueError("Existing pending order exceeds budget")
+            return {"work_order": _public(existing), "created": False, "agent_steps": [
+                {"tool": "create_work_order", "status": "completed",
+                 "message": f"Возвращён ранее созданный заказ WO-{8820 + existing['id']}."}
+            ]}
         cursor = connection.execute(
             """INSERT INTO work_orders
             (incident_id, tower_id, solution_type, team, task, budget_kzt, priority, status, created_at)
@@ -71,7 +87,7 @@ def create_work_order(payload: dict) -> dict:
              "pending", created_at),
         )
         row = connection.execute("SELECT * FROM work_orders WHERE id = ?", (cursor.lastrowid,)).fetchone()
-    return {"work_order": _public(row), "agent_steps": [
+    return {"work_order": _public(row), "created": True, "agent_steps": [
         {"tool": "create_work_order", "status": "completed", "message": f"Создан заказ WO-{8820 + row['id']}."}
     ]}
 
@@ -82,6 +98,15 @@ def get_work_order(work_order_id: str) -> dict | None:
     row_id = int(work_order_id[3:]) - 8820
     if row_id < 1:
         return None
-    with _connect() as connection:
+    with closing(_connect()) as connection, connection:
         row = connection.execute("SELECT * FROM work_orders WHERE id = ?", (row_id,)).fetchone()
     return _public(row) if row else None
+
+
+def list_work_orders(incident_id: str | None = None, limit: int = 100) -> list[dict]:
+    with closing(_connect()) as connection:
+        rows = connection.execute(
+            "SELECT * FROM work_orders WHERE (? IS NULL OR incident_id = ?) ORDER BY id DESC LIMIT ?",
+            (incident_id, incident_id, limit),
+        ).fetchall()
+    return [_public(row) for row in rows]

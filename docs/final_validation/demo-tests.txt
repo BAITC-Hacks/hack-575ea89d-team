@@ -1,0 +1,35 @@
+TAP version 13
+# Subtest: renders a valid mock report and keeps pilot/final tables separate
+ok 1 - renders a valid mock report and keeps pilot/final tables separate
+  ---
+  duration_ms: 47.093496
+  ...
+# Subtest: renders null net and pilot observations as missing, not zero
+ok 2 - renders null net and pilot observations as missing, not zero
+  ---
+  duration_ms: 7.507056
+  ...
+# Subtest: invalid schema clears previous report rather than retaining old metrics
+ok 3 - invalid schema clears previous report rather than retaining old metrics
+  ---
+  duration_ms: 5.282168
+  ...
+# Subtest: damaged JSON clears previous report and reports the parse error
+ok 4 - damaged JSON clears previous report and reports the parse error
+  ---
+  duration_ms: 6.19636
+  ...
+# Subtest: failed automatic report fetch leaves placeholders, not stale results
+ok 5 - failed automatic report fetch leaves placeholders, not stale results
+  ---
+  duration_ms: 5.056613
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 85.182174

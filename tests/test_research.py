@@ -6,7 +6,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from research.candidates import build_candidates, HISTORY_COLUMNS
+from research.median_candidates import build_candidates, HISTORY_COLUMNS
 from strategy.planner import select_segment
 
 ROOT = Path(__file__).resolve().parents[1]

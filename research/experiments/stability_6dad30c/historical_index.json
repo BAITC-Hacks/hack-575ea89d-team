@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "historical_artifacts_unchanged": [
+    {
+      "path": "research/mock_comparison.json",
+      "git_ref": "6dad30c",
+      "lf_sha256": "5f647a28c030d7de7ec35769d44e1df1b050613e21eada4385362d8715adbdf5"
+    },
+    {
+      "path": "research/median_mock_comparison.json",
+      "git_ref": "6dad30c",
+      "lf_sha256": "c889992c070a666f84a0070b21edb512b8729702f4dd731ab43f71ca62350e51"
+    },
+    {
+      "path": "research/audit.json",
+      "git_ref": "6dad30c",
+      "lf_sha256": "ebe322139ec7986680f724e41b69c83010aa07b3db54762a127b9267ac1dde1f"
+    },
+    {
+      "path": "research/median_audit.json",
+      "git_ref": "6dad30c",
+      "lf_sha256": "635efa111d99b3ca86858848e60f987f3c5c3047dce6f24d2a15a7ad93e46033"
+    }
+  ],
+  "interpretation": "Legacy JSONs have incomplete execution provenance. Their baseline_commit identifies only a generator source, not the whole Agent/planner. Do not recompute into these paths with the current runner.",
+  "documented_context_only": {
+    "research/mock_comparison.json": "Old fixed baseline planner from 58c794b, current generator snapshot in 9b7d5ef; attribution from session documentation, not an execution manifest.",
+    "research/median_mock_comparison.json": "Old fixed baseline planner with median experiment from 3714cf9; attribution from session documentation, not an execution manifest."
+  },
+  "new_comparison": "generators.json compares three candidate generators with the same actual Agent/planner recorded inside that artifact. It is not a full-agent benchmark.",
+  "full_agent_comparison": "Use isolated complete source trees for both revisions, the same dataset/evaluator/dependencies and seeds, and separate manifests. Historical full-agent metrics remain in docs/AGENT_VALIDATION.md; no new full-agent comparison is claimed."
+}

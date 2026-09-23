@@ -1,0 +1,1 @@
+Mock report: artifacts/report.json; final campaigns: 10

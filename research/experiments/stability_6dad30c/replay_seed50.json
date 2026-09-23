@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "mode": "mock",
+  "kind": "saved_generator_comparison_replay",
+  "evidence_sha256": "40b2f4fc781f99c9a8582e3afe3c529b310345cb964c71bce86f4db46b84bdab",
+  "seed": 50,
+  "replay_runner": {
+    "sha256": "9a4e3a27e8bd525318a4eb3da537a5e5e97e139a4880c0b8dbb8d97211f805fb",
+    "lf_sha256": "a13c9c4a40f0cac31182f56168c57cc55e93186e532f2feba01494c4c356a05e",
+    "bytes": 3878
+  },
+  "metrics_match": true,
+  "metrics": {
+    "median": {
+      "net_arpu_gain": 4095640.5374096753,
+      "total_cost": 75046.0,
+      "total_contacts": 9521,
+      "n_campaigns": 30,
+      "n_pilots": 20
+    },
+    "original": {
+      "net_arpu_gain": 4041120.095378798,
+      "total_cost": 67394.0,
+      "total_contacts": 10407,
+      "n_campaigns": 30,
+      "n_pilots": 20
+    },
+    "current": {
+      "net_arpu_gain": 3655348.785297655,
+      "total_cost": 39356.0,
+      "total_contacts": 8999,
+      "n_campaigns": 30,
+      "n_pilots": 20
+    }
+  },
+  "timing_replayed": false
+}

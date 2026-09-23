@@ -1,0 +1,5513 @@
+{
+  "schema_version": 1,
+  "analysis_kind": "conditional_history_ranking_stability",
+  "started_at_utc": "2026-09-23T12:27:33.343215+00:00",
+  "plan": {
+    "schema_version": 1,
+    "base_main": "6dad30c",
+    "comparison_kind": "candidate_generators_fixed_planner",
+    "variants": [
+      "original",
+      "current",
+      "median"
+    ],
+    "original_ref": "58c794b",
+    "original_path": "research/candidates.py",
+    "seed_groups": {
+      "known_0_9": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "known_30_39": [
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+      ],
+      "control_50_69": [
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69
+      ]
+    },
+    "bootstrap": {
+      "replicates": 200,
+      "rng_seed": 20260923,
+      "top_k": 12,
+      "unit": "unique historical event; deduplicate original events before global sampling with replacement",
+      "preserve_draw_multiplicity": "assign temporary synthetic event IDs after drawing; never change source CSV",
+      "leave_one_out": "each eligible event in baseline top-12 cells with 1..30 historical observations"
+    },
+    "rules": [
+      "Do not tune any generator or planner using these runs, including control_50_69.",
+      "All variants use the exact same current Agent/planner, data and evaluator for each seed.",
+      "This is NOT a comparison of full agents across commits.",
+      "Run variants sequentially in a rotating order; record raw wall time with no claim of isolated timing.",
+      "Preserve all failures and negative deltas; report all three seed groups separately.",
+      "Bootstrap stability is conditional ranking sensitivity, not causal campaign confidence.",
+      "Never overwrite previous result files. Record source, data, dependency and plan fingerprints."
+    ]
+  },
+  "provenance": {
+    "git_head": "6105f246c1864b2dec660e05a89c55a43c98b816",
+    "git_status": "?? research/experiments/stability_6dad30c/generators.json\n",
+    "sources": {
+      "research/candidates.py": {
+        "path": "research/candidates.py",
+        "sha256": "487f20e341f188489553602223bcb5b562baef87d41925159d033b50a1bb2f76",
+        "lf_sha256": "44f93e789423f567925a363085b18185543fdd3f37ce730982429604ecf18e9b",
+        "bytes": 7758,
+        "last_path_commit": "9b7d5ef76da9b36e7ace392d21e468d5c91234a6",
+        "source_utf8": "\"\"\"Public-data pilot hypotheses. Historical switcher ratios are not conversion rates.\"\"\"\nimport math\nfrom pathlib import Path\n\nimport numpy as np\nimport pandas as pd\n\nHISTORY_COLUMNS = ['tariff_plan_code_from', 'tariff_plan_code_to',\n                   'AVG_ARPU_PREV_3M', 'AVG_ARPU_NEXT_3M']\nSEGMENTS = {'arpu_segment': ('LOW', 'MID', 'HIGH'),\n            'data_segment': ('NON_USER', 'LITE', 'HEAVY'),\n            'call_segment': ('LOW', 'MEDIUM', 'HIGH')}\nPRIOR_WEIGHT = 20\n\n\ndef _history_stats(path, known):\n    \"\"\"Return (shrunk ratio, valid record count, caution margin) per cell.\n\n    Missing/empty history is a cold start. Malformed files raise an error.\n    The margin is a ranking heuristic, NOT a calibrated confidence interval.\n    \"\"\"\n    try:\n        history = pd.read_csv(path)\n    except (FileNotFoundError, pd.errors.EmptyDataError):\n        return {}\n    missing = set(HISTORY_COLUMNS) - set(history.columns)\n    if missing:\n        raise ValueError(f'History missing columns: {sorted(missing)}')\n    # Equal measurements from different customers are independent records.\n    if {'ID_NUMBER', 'TIME_KEY'}.issubset(history.columns):\n        history = history.drop_duplicates()\n    history = history.copy()\n    for col in HISTORY_COLUMNS[2:]:\n        history[col] = pd.to_numeric(history[col], errors='coerce')\n    before, after = history.AVG_ARPU_PREV_3M, history.AVG_ARPU_NEXT_3M\n    valid = (np.isfinite(before) & np.isfinite(after) & (before >= 100) & (after >= 0)\n             & history.tariff_plan_code_from.isin(known)\n             & history.tariff_plan_code_to.isin(known)\n             & (history.tariff_plan_code_from != history.tariff_plan_code_to))\n    history = history.loc[valid].copy()\n    before = history.AVG_ARPU_PREV_3M\n    # Guide: LOW <1000, MID 1000..5000 inclusive, HIGH >5000.\n    history['arpu_segment'] = np.where(before < 1000, 'LOW', np.where(before <= 5000, 'MID', 'HIGH'))\n    history['change'] = (history.AVG_ARPU_NEXT_3M / before - 1).clip(-1, 3)\n    stats = {}\n    for key, rows in history.groupby(['tariff_plan_code_from', 'arpu_segment', 'tariff_plan_code_to'], observed=True, sort=True):\n        values = rows.change.sort_values().to_numpy()\n        n = len(values)\n        if n >= 10:\n            values = np.clip(values, *np.quantile(values, [.1, .9]))\n        mean = float(values.mean())\n        shrunk = mean * n / (n + PRIOR_WEIGHT)\n        # Regularized dispersion prevents singleton certainty.\n        variance = (float(np.square(values - mean).sum()) + PRIOR_WEIGHT * .25) / (n + PRIOR_WEIGHT)\n        margin = math.sqrt(variance / (n + PRIOR_WEIGHT))\n        stats[key] = (shrunk, n, margin)\n    return stats\n\n\ndef _cells(group, filters, columns=('data_segment', 'call_segment')):\n    \"\"\"Disjoint representable cells only; never truncate rows behind a filter.\"\"\"\n    if len(group) < 10:\n        return\n    if len(group) <= 5000:\n        yield filters, group\n        return\n    alternatives = []\n    for col in columns:\n        if col not in group:\n            continue\n        children = []\n        remaining = tuple(c for c in columns if c != col)\n        for label in SEGMENTS[col]:\n            child = group.loc[group[col] == label]\n            children.extend(_cells(child, {**filters, f'filter_{col}': label}, remaining))\n        alternatives.append(children)\n    if alternatives:\n        # Retain the largest legal audience, then prefer fewer fragments.\n        yield from max(alternatives, key=lambda cells: (sum(len(g) for _, g in cells), -len(cells)))\n    # No legal split remains: omit the oversized cell, never truncate IDs.\n\n\ndef _median(frame, column):\n    if column not in frame:\n        return None\n    values = pd.to_numeric(frame[column], errors='coerce')\n    values = values[np.isfinite(values) & (values >= 0)]\n    return float(values.median()) if len(values) else None\n\n\ndef _fit(group, tariff):\n    \"\"\"Weak package/affordability tie breaker, not a response probability.\"\"\"\n    scores = []\n    for usage, capacity in (('DATA_VOLUME', 'Data_in_PKG'),\n                            ('OUT_LOC_OFFNET_MIN', 'Min_another_operator_in_PKG')):\n        demand = _median(group, usage)\n        cap = pd.to_numeric(tariff.get(capacity), errors='coerce')\n        if usage == 'OUT_LOC_OFFNET_MIN':\n            shared = pd.to_numeric(tariff.get('Min_another_operator_and_city_in_PKG'), errors='coerce')\n            land = _median(group, 'OUT_LOC_LAND_MIN')\n            if pd.notna(shared) and shared > 0:\n                cap = (max(0.0, shared - land) + (cap if pd.notna(cap) else 0)\n                       if land is not None else float('nan'))\n        if demand is not None and pd.notna(cap) and np.isfinite(cap) and cap >= 0:\n            scores.append(1.0 if demand == 0 else min(1.0, float(cap) / demand))\n    value = _median(group, 'predicted_arpu')\n    price = pd.to_numeric(tariff.get('price_tariff'), errors='coerce')\n    if value is not None and pd.notna(price) and np.isfinite(price) and price >= 0:\n        scores.append(1.0 if price == 0 else min(1.0, value / price))\n    return float(np.mean(scores)) if scores else .5\n\n\ndef build_candidates(profile, tariffs, history_path=None) -> list[dict]:\n    \"\"\"Contract v1: 10..5000 rows, two alternatives per disjoint cell.\n\n    One option from every cell precedes second options. Missing evidence has\n    small exploration priority but a zero historical prior. No env access.\n    \"\"\"\n    path = Path(history_path) if history_path is not None else Path(__file__).resolve().parents[1] / 'data/change_tariff.csv'\n    tariff_rows = tariffs.dropna(subset=['tariff_plan_code']).copy()\n    if tariff_rows.tariff_plan_code.duplicated().any():\n        raise ValueError('tariff_plan_code must be unique')\n    tariff_rows = tariff_rows.set_index('tariff_plan_code')\n    known = sorted(tariff_rows.index.astype(str))\n    stats = _history_stats(path, known)\n    cells = []\n    for (current, segment), group in profile.groupby(['current_tariff', 'arpu_segment'], observed=True, sort=True):\n        if current not in known or segment not in SEGMENTS['arpu_segment']:\n            continue\n        filters = {'filter_current_tariff': str(current), 'filter_arpu_segment': str(segment)}\n        for cell_filters, cell in _cells(group, filters):\n            value = pd.to_numeric(cell.predicted_arpu, errors='coerce')\n            # A public filter would still select malformed rows. Reject the\n            # entire cell instead of silently pricing only its valid subset.\n            if not (np.isfinite(value) & (value >= 0)).all():\n                continue\n            audience_value = float(value.sort_values().sum())\n            options = []\n            for target in known:\n                if target == current:\n                    continue\n                prior, support, margin = stats.get((current, segment, target), (0.0, 0, 0.0))\n                fit = _fit(cell, tariff_rows.loc[target])\n                signal = max(prior - margin, 0.0) if support else .01\n                options.append({**cell_filters, 'target_tariff': target,\n                                'prior_lift_ratio': prior, 'history_support': support,\n                                'priority': signal * audience_value * (.75 + .25 * fit)})\n            options.sort(key=lambda c: (-c['priority'], -c['history_support'], c['target_tariff']))\n            if options:\n                cells.append(options)\n    cells.sort(key=lambda options: (-options[0]['priority'], tuple(sorted((k, v) for k, v in options[0].items() if k.startswith('filter_')))))\n    return [options[rank] for rank in range(2) for options in cells if len(options) > rank]\n"
+      },
+      "research/stability.py": {
+        "path": "research/stability.py",
+        "sha256": "009e16c8ad352e125dae60a4c44e693faceb92871337f29df005d9bfe68d6746",
+        "lf_sha256": "b98d99b4ade9284d66d7a2e907e9fd77bae971aba52d24755dfafe54c9f1e805",
+        "bytes": 8171,
+        "last_path_commit": "6105f246c1864b2dec660e05a89c55a43c98b816",
+        "source_utf8": "\"\"\"Sensitivity of public-data hypothesis rankings, NOT causal effect confidence.\n\npython -m research.stability --plan <preregistered JSON> --output <new JSON>\nNo environment/evaluator imports; only public CSVs and the current generator.\n\"\"\"\nimport argparse\nfrom collections import Counter, defaultdict\nfrom datetime import datetime, timezone\nimport json\nfrom pathlib import Path\nimport tempfile\n\nimport numpy as np\nimport pandas as pd\n\nfrom research.candidates import build_candidates, _history_stats\nfrom research.provenance import ROOT, manifest, verify_unchanged, write_new_json\n\nFILTERS = ('filter_current_tariff', 'filter_arpu_segment', 'filter_data_segment', 'filter_call_segment')\n\n\ndef cell_key(candidate):\n    return '|'.join(str(candidate.get(key, '*')) for key in FILTERS)\n\n\ndef candidate_key(candidate):\n    return cell_key(candidate) + '|' + candidate['target_tariff']\n\n\ndef draw_events(events, rng):\n    \"\"\"A sampled event's multiplicity must survive runtime exact-deduplication.\"\"\"\n    sampled = events.iloc[rng.integers(0, len(events), size=len(events))].copy().reset_index(drop=True)\n    sampled['ID_NUMBER'] = np.arange(len(sampled))\n    return sampled\n\n\ndef first_choices(candidates):\n    result = {}\n    for candidate in candidates:\n        result.setdefault(cell_key(candidate), candidate['target_tariff'])\n    return result\n\n\ndef summarize_draws(base, draws, top_k):\n    ranks = defaultdict(list)\n    top_counts = Counter()\n    choices = defaultdict(Counter)\n    base_set = {candidate_key(c) for c in base[:top_k]}\n    overlaps = []\n    for candidates in draws:\n        keys = [candidate_key(c) for c in candidates]\n        selected = set(keys[:top_k])\n        top_counts.update(selected)\n        for rank, key in enumerate(keys, 1):\n            ranks[key].append(rank)\n        for cell, target in first_choices(candidates).items():\n            choices[cell][target] += 1\n        overlaps.append(len(base_set & selected) / len(base_set | selected) if base_set | selected else 1.)\n    keys_to_report = set(top_counts) | base_set\n    base_map = {candidate_key(c): (i, c) for i, c in enumerate(base, 1)}\n    rows = []\n    for key in sorted(keys_to_report):\n        seen_ranks = ranks[key]\n        original = base_map.get(key)\n        rows.append({'key': key, 'baseline_rank': original[0] if original else None,\n                     'baseline_support': original[1]['history_support'] if original else None,\n                     'baseline_prior': original[1]['prior_lift_ratio'] if original else None,\n                     'top_k_count': top_counts[key], 'top_k_fraction': top_counts[key] / len(draws),\n                     'present_count': len(seen_ranks), 'absent_count': len(draws) - len(seen_ranks),\n                     'rank_quantiles_when_present': dict(zip(('p10', 'median', 'p90'), map(float, np.quantile(seen_ranks, [.1, .5, .9])))) if seen_ranks else None})\n    return {'candidates': sorted(rows, key=lambda row: (-row['top_k_count'], row['key'])),\n            'first_choice_counts_by_cell': {cell: dict(counts.most_common()) for cell, counts in sorted(choices.items())},\n            'top_k_jaccard': {'mean': float(np.mean(overlaps)), 'min': min(overlaps),\n                              'median': float(np.median(overlaps)), 'max': max(overlaps)}}\n\n\ndef eligible_events(history, candidate):\n    before = pd.to_numeric(history.AVG_ARPU_PREV_3M, errors='coerce')\n    after = pd.to_numeric(history.AVG_ARPU_NEXT_3M, errors='coerce')\n    segment = np.where(before < 1000, 'LOW', np.where(before <= 5000, 'MID', 'HIGH'))\n    return history.index[(history.tariff_plan_code_from == candidate['filter_current_tariff'])\n                         & (history.tariff_plan_code_to == candidate['target_tariff'])\n                         & (segment == candidate['filter_arpu_segment'])\n                         & np.isfinite(before) & np.isfinite(after) & (before >= 100) & (after >= 0)]\n\n\ndef analyze(plan_path):\n    plan_path = Path(plan_path).resolve()\n    plan = json.loads(plan_path.read_text(encoding='utf-8-sig'))\n    config = plan['bootstrap']\n    evidence = manifest([ROOT / p for p in ('research/candidates.py', 'research/stability.py', 'research/provenance.py')], [plan_path])\n    profile = pd.read_csv(ROOT / 'customer_profile.csv')\n    tariffs = pd.read_csv(ROOT / 'tariff_dictionary.csv')\n    raw = pd.read_csv(ROOT / 'data/change_tariff.csv')\n    events = raw.drop_duplicates().reset_index(drop=True)\n    if events.duplicated(['ID_NUMBER', 'TIME_KEY']).any():\n        raise ValueError('Conflicting event keys require an explicit resampling unit decision')\n    base = build_candidates(profile, tariffs)\n    rng = np.random.default_rng(config['rng_seed'])\n    draws, raw_draws, influences = [], [], []\n    started = datetime.now(timezone.utc).isoformat()\n    with tempfile.TemporaryDirectory() as folder:\n        path = Path(folder) / 'sample.csv'\n        for index in range(config['replicates']):\n            draw_events(events, rng).to_csv(path, index=False)\n            candidates = build_candidates(profile, tariffs, path)\n            draws.append(candidates)\n            raw_draws.append({'replicate': index, 'top_k': [candidate_key(c) for c in candidates[:config['top_k']]]})\n            if (index + 1) % 10 == 0:\n                print(f'Bootstrap {index + 1}/{config[\"replicates\"]}', flush=True)\n        for candidate in base[:config['top_k']]:\n            if not 1 <= candidate['history_support'] <= 30:\n                continue\n            indices = eligible_events(events, candidate)\n            if len(indices) != candidate['history_support']:\n                raise AssertionError('Leave-one-out support differs from generator support')\n            cases = []\n            key = candidate_key(candidate)\n            cell = cell_key(candidate)\n            for index in indices:\n                events.drop(index=index).to_csv(path, index=False)\n                candidates = build_candidates(profile, tariffs, path)\n                keys = [candidate_key(c) for c in candidates]\n                rank = keys.index(key) + 1 if key in keys else None\n                cases.append({'removed_event_row': int(index), 'rank': rank,\n                              'first_choice_target': first_choices(candidates).get(cell),\n                              'in_top_k': rank is not None and rank <= config['top_k']})\n            influences.append({'key': key, 'support': len(indices), 'cases': cases,\n                               'top_k_losses': sum(not c['in_top_k'] for c in cases),\n                               'first_choice_changes': sum(c['first_choice_target'] != candidate['target_tariff'] for c in cases)})\n            print(f'Leave-one-out {key}: {len(cases)} events', flush=True)\n    verify_unchanged(evidence)\n    return {'schema_version': 1, 'analysis_kind': 'conditional_history_ranking_stability',\n            'started_at_utc': started, 'plan': plan, 'provenance': evidence,\n            'raw_rows': len(raw), 'deduplicated_events': len(events),\n            'baseline_top_k': base[:config['top_k']], 'replicate_top_k': raw_draws,\n            'bootstrap_summary': summarize_draws(base, draws, config['top_k']),\n            'leave_one_out': influences,\n            'limitations': ['Empirical event resampling does not identify causal campaign effects or population transfer.',\n                           'Target profile and tariff catalogue stay fixed; absent transition cells stay absent.',\n                           'All historical events are from one month; no temporal or customer-population holdout.',\n                           'Rank quantiles condition on the pair being returned; absent counts are reported separately.',\n                           'Single-event deletion covers only top-k historical cells with at most 30 observations.']}\n\n\nif __name__ == '__main__':\n    parser = argparse.ArgumentParser(description=__doc__)\n    parser.add_argument('--plan', type=Path, required=True)\n    parser.add_argument('--output', type=Path, required=True)\n    args = parser.parse_args()\n    if args.output.exists():\n        parser.error('Output already exists; choose a new path.')\n    write_new_json(args.output, analyze(args.plan))\n"
+      },
+      "research/provenance.py": {
+        "path": "research/provenance.py",
+        "sha256": "d4b50c29bc2dfd4990134ea9bd0d9b73795371aa177403b0cfef447132b5676c",
+        "lf_sha256": "a19501ec3e05b2c5715dcaa8a32a006b3d9b8c5d13b0e5c943735f77fd9fd308",
+        "bytes": 2509,
+        "last_path_commit": "be8ee4090540684d292d0cf102ac1140543df803",
+        "source_utf8": "\"\"\"Read-only provenance for research experiments; no environment introspection.\"\"\"\nimport hashlib\nimport json\nfrom pathlib import Path\nimport platform\nimport subprocess\nimport sys\n\nimport numpy as np\nimport pandas as pd\n\nROOT = Path(__file__).resolve().parents[1]\n\n\ndef sha256(data):\n    return hashlib.sha256(data).hexdigest()\n\n\ndef git(*args):\n    return subprocess.check_output(\n        ['git', '-c', f'safe.directory={ROOT.as_posix()}', *args], cwd=ROOT)\n\n\ndef fingerprint(path):\n    path = Path(path)\n    raw = path.read_bytes()\n    return {'sha256': sha256(raw), 'lf_sha256': sha256(raw.replace(b'\\r\\n', b'\\n')),\n            'bytes': len(raw)}\n\n\ndef source_record(path):\n    path = Path(path)\n    relative = path.relative_to(ROOT).as_posix()\n    return {'path': relative, **fingerprint(path),\n            'last_path_commit': git('log', '-1', '--format=%H', '--', relative).decode().strip() or None,\n            'source_utf8': path.read_text(encoding='utf-8-sig')}\n\n\ndef manifest(source_paths, extra_paths=()):\n    # Hashing organizer bytes is only provenance, never reading model parameters.\n    paths = sorted(set([*ROOT.glob('*.csv'), *ROOT.glob('data/*.csv'),\n                        *(ROOT / p for p in ('environment.py', 'mock_environment.py', 'scoring_core.py', 'local_eval.py', 'requirements.txt')),\n                        *(Path(p) for p in extra_paths)]))\n    return {'git_head': git('rev-parse', 'HEAD').decode().strip(),\n            'git_status': git('status', '--porcelain').decode(),\n            'sources': {str(Path(p).relative_to(ROOT).as_posix()): source_record(p) for p in source_paths},\n            'inputs': {p.relative_to(ROOT).as_posix(): fingerprint(p) for p in paths},\n            'runtime': {'python': sys.version, 'implementation': platform.python_implementation(),\n                        'platform': platform.platform(), 'numpy': np.__version__, 'pandas': pd.__version__}}\n\n\ndef verify_unchanged(evidence):\n    for section in ('sources', 'inputs'):\n        for name, record in evidence[section].items():\n            if fingerprint(ROOT / name)['sha256'] != record['sha256']:\n                raise RuntimeError(f'Experiment input changed during run: {name}')\n\n\ndef write_new_json(path, value):\n    \"\"\"Exclusive create: historical outputs can never be silently overwritten.\"\"\"\n    path = Path(path)\n    payload = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + '\\n'\n    with path.open('x', encoding='utf-8', newline='\\n') as out:\n        out.write(payload)\n"
+      }
+    },
+    "inputs": {
+      "customer_profile.csv": {
+        "sha256": "e377baa2553a790f030a1d3411b3b5c5ca6316ccc7485badc9b08afa6da17d3f",
+        "lf_sha256": "a85e9badf4cb51b1ba8c43a868498b6fa8075509f3cd8e19ef72e1c25a6dc815",
+        "bytes": 6193575
+      },
+      "data/arpu_monthly.csv": {
+        "sha256": "e72c0fd5a59df245a4972ccd83d0139ef5c81273708cd14fe75639d2d08558fa",
+        "lf_sha256": "83d96b61c38a8bf7cdf5f07bc4f17f7f2f39885559c496fc28c266cef8ad3c4a",
+        "bytes": 1952460
+      },
+      "data/change_tariff.csv": {
+        "sha256": "655d6af287093e681e4057ce9db438d4953598b5340951d95b891ed0cb6ad257",
+        "lf_sha256": "c52d7dad11fccc7425afe6d36a44a1fa03c8cc148be2039ce264d0c5c100f230",
+        "bytes": 923398
+      },
+      "data/dict_tariff.csv": {
+        "sha256": "74ef4242c9a6c46bd391d78251d6e3b9a408d913590c6efad7aa3957018be74c",
+        "lf_sha256": "a34d81dacffbb937ddd542e87d421afcea4842379acfbad55b8d59bdf710f4be",
+        "bytes": 690
+      },
+      "data/traffic.csv": {
+        "sha256": "51bb265b0c561564899b0718b5598d662eeea1ad00e333e001433dcd196a0857",
+        "lf_sha256": "cb0a3f8827d8be6989b65dc5bf0b7c901047cf64e485f4ee74e3c24787ee846c",
+        "bytes": 13153861
+      },
+      "environment.py": {
+        "sha256": "6385136a79814624449843930c55305b397a2d3d30c4d8c280e7b2b08bf033fc",
+        "lf_sha256": "8003a305ea9a560270ee875b2c48a6b1fbf8198d9c6c680e4827542532bb3dd1",
+        "bytes": 11975
+      },
+      "feature_dictionary.csv": {
+        "sha256": "7cf844d19cceb29f6796d49b047296b2643a35e7345390a637320c33553fb5fd",
+        "lf_sha256": "80bb9dddea7a054c3ef6569805013efbe313c7918a9d72d06203d1534e8f5c21",
+        "bytes": 4331
+      },
+      "local_eval.py": {
+        "sha256": "6af581b2c626c75adf72afd8cf965b883753518ef6b75df3844571d97a508e02",
+        "lf_sha256": "16c3b96b00487c02ee470a23e6b4554c220a5ea817b1ea46b75cfac158dd5b47",
+        "bytes": 4990
+      },
+      "mock_environment.py": {
+        "sha256": "9c7515361270ebef8cec08f3a78ed0d288532a14d51e08eb6455de71994f9111",
+        "lf_sha256": "e1e4a480126d2896e89a868194b3ed7f7ee48d7c5fc2c8a2491970d8e231f506",
+        "bytes": 4667
+      },
+      "requirements.txt": {
+        "sha256": "65a20d14b78c0b1771ac5ef28cb6e16aeeb992784bf314eed51527dce0275e40",
+        "lf_sha256": "0846458bcf335b51ca600e1b641845c8036206578678988f79c8e2181a609566",
+        "bytes": 29
+      },
+      "research/experiments/stability_6dad30c/plan.json": {
+        "sha256": "8777449be3ac9336899f599e500516de7660ce96b1fab1a932ddc165f612c515",
+        "lf_sha256": "c3cfbc36322daaf827ee28a472a177ca7f9c2fd746b244de258e6049e046bc68",
+        "bytes": 1505
+      },
+      "scoring_core.py": {
+        "sha256": "74e2316c2329872dd7c93165a4b47e6c583ecdb9af853671c14a8a11cb701cf7",
+        "lf_sha256": "ba68595daebb12418000fa4d59ffbbf156df045f589bdbb789f3531145c58327",
+        "bytes": 18178
+      },
+      "submission.csv": {
+        "sha256": "a8a2b38c60aff978b55f6b9bdafb05181e614d9f7fe151ed25c0aefdbd05c892",
+        "lf_sha256": "386245e3037b13ac23ad2271e407f88e2e6954c05f37d00bff753b8888b99e8e",
+        "bytes": 537
+      },
+      "tariff_dictionary.csv": {
+        "sha256": "f28fdc513c562b86a86849c243340523b0f2bb450a6a74a999322aeab505f584",
+        "lf_sha256": "d3e6588f5d8e8e51202b4a77b2d4c0243080965a82d8e1d9411149220dd9df1c",
+        "bytes": 4193
+      }
+    },
+    "runtime": {
+      "python": "3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]",
+      "implementation": "CPython",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "numpy": "2.5.3",
+      "pandas": "2.3.3"
+    }
+  },
+  "raw_rows": 14823,
+  "deduplicated_events": 14817,
+  "baseline_top_k": [
+    {
+      "filter_current_tariff": "tariff_8",
+      "filter_arpu_segment": "MID",
+      "target_tariff": "tariff_10",
+      "prior_lift_ratio": 0.3108241948676902,
+      "history_support": 182,
+      "priority": 1865895.8815478825
+    },
+    {
+      "filter_current_tariff": "tariff_4",
+      "filter_arpu_segment": "MID",
+      "target_tariff": "tariff_8",
+      "prior_lift_ratio": 0.32185448171133835,
+      "history_support": 408,
+      "priority": 1643125.940924692
+    },
+    {
+      "filter_current_tariff": "tariff_8",
+      "filter_arpu_segment": "LOW",
+      "target_tariff": "tariff_9",
+      "prior_lift_ratio": 1.3906199574436398,
+      "history_support": 26,
+      "priority": 1574773.0051141449
+    },
+    {
+      "filter_current_tariff": "tariff_13",
+      "filter_arpu_segment": "MID",
+      "target_tariff": "tariff_8",
+      "prior_lift_ratio": 0.3602357105470829,
+      "history_support": 234,
+      "priority": 1529655.9789380264
+    },
+    {
+      "filter_current_tariff": "tariff_4",
+      "filter_arpu_segment": "LOW",
+      "target_tariff": "tariff_9",
+      "prior_lift_ratio": 1.0964622392584173,
+      "history_support": 17,
+      "priority": 799245.8137719266
+    },
+    {
+      "filter_current_tariff": "tariff_10",
+      "filter_arpu_segment": "MID",
+      "target_tariff": "tariff_11",
+      "prior_lift_ratio": 0.2787596258827557,
+      "history_support": 86,
+      "priority": 580673.8468230779
+    },
+    {
+      "filter_current_tariff": "tariff_12",
+      "filter_arpu_segment": "MID",
+      "target_tariff": "tariff_8",
+      "prior_lift_ratio": 0.37274154405723486,
+      "history_support": 78,
+      "priority": 445902.1848567328
+    },
+    {
+      "filter_current_tariff": "tariff_8",
+      "filter_arpu_segment": "HIGH",
+      "target_tariff": "tariff_16",
+      "prior_lift_ratio": 0.0,
+      "history_support": 0,
+      "priority": 369881.07972429495
+    },
+    {
+      "filter_current_tariff": "tariff_10",
+      "filter_arpu_segment": "LOW",
+      "target_tariff": "tariff_9",
+      "prior_lift_ratio": 0.5544462745843555,
+      "history_support": 8,
+      "priority": 347206.5431309721
+    },
+    {
+      "filter_current_tariff": "tariff_11",
+      "filter_arpu_segment": "LOW",
+      "target_tariff": "tariff_8",
+      "prior_lift_ratio": 0.5448248138694254,
+      "history_support": 16,
+      "priority": 346321.387341153
+    },
+    {
+      "filter_current_tariff": "tariff_14",
+      "filter_arpu_segment": "MID",
+      "target_tariff": "tariff_9",
+      "prior_lift_ratio": 0.23267413302767584,
+      "history_support": 7,
+      "priority": 335189.14364783943
+    },
+    {
+      "filter_current_tariff": "tariff_13",
+      "filter_arpu_segment": "LOW",
+      "target_tariff": "tariff_8",
+      "prior_lift_ratio": 0.6221279185901666,
+      "history_support": 20,
+      "priority": 317206.12658873387
+    }
+  ],
+  "replicate_top_k": [
+    {
+      "replicate": 0,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 1,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 2,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 3,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_13|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 4,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 5,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 6,
+      "top_k": [
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_11",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|MID|*|*|tariff_10",
+        "tariff_11|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 7,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_13|HIGH|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 8,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_11",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_10|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 9,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 10,
+      "top_k": [
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_4",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_10"
+      ]
+    },
+    {
+      "replicate": 11,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_10",
+        "tariff_10|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 12,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 13,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 14,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_13|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 15,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_14|LOW|*|*|tariff_1"
+      ]
+    },
+    {
+      "replicate": 16,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|MID|*|*|tariff_4",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11"
+      ]
+    },
+    {
+      "replicate": 17,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 18,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_14|LOW|*|*|tariff_4",
+        "tariff_11|MID|*|*|tariff_4"
+      ]
+    },
+    {
+      "replicate": 19,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_11",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_10"
+      ]
+    },
+    {
+      "replicate": 20,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_11",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_11|MID|*|*|tariff_8",
+        "tariff_12|HIGH|*|*|tariff_11"
+      ]
+    },
+    {
+      "replicate": 21,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|MID|*|*|tariff_10"
+      ]
+    },
+    {
+      "replicate": 22,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_11|MID|*|*|tariff_10",
+        "tariff_11|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 23,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_12|HIGH|*|*|tariff_11"
+      ]
+    },
+    {
+      "replicate": 24,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_11",
+        "tariff_10|MID|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 25,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 26,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_11|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 27,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_10",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 28,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_10",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_11|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 29,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 30,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_4"
+      ]
+    },
+    {
+      "replicate": 31,
+      "top_k": [
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_10",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|MID|*|*|tariff_10",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 32,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 33,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_11|MID|*|*|tariff_4"
+      ]
+    },
+    {
+      "replicate": 34,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_4"
+      ]
+    },
+    {
+      "replicate": 35,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_8",
+        "tariff_10|HIGH|*|*|tariff_11"
+      ]
+    },
+    {
+      "replicate": 36,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 37,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_13",
+        "tariff_13|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 38,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_8|HIGH|*|*|tariff_10"
+      ]
+    },
+    {
+      "replicate": 39,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 40,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_10",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_10"
+      ]
+    },
+    {
+      "replicate": 41,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 42,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 43,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10"
+      ]
+    },
+    {
+      "replicate": 44,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11"
+      ]
+    },
+    {
+      "replicate": 45,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 46,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_8|MID|*|*|tariff_12",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|HIGH|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_4|HIGH|*|*|tariff_12"
+      ]
+    },
+    {
+      "replicate": 47,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_10",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 48,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_13",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 49,
+      "top_k": [
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|MID|*|*|tariff_10",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_11",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_1"
+      ]
+    },
+    {
+      "replicate": 50,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_11|MID|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 51,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_13|HIGH|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 52,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 53,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 54,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_12|HIGH|*|*|tariff_11"
+      ]
+    },
+    {
+      "replicate": 55,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 56,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_13",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_11|MID|*|*|tariff_10"
+      ]
+    },
+    {
+      "replicate": 57,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 58,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|MID|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 59,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 60,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 61,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|HIGH|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 62,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 63,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 64,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_13",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_4",
+        "tariff_13|HIGH|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 65,
+      "top_k": [
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 66,
+      "top_k": [
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_14|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 67,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_12"
+      ]
+    },
+    {
+      "replicate": 68,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_13",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_12|HIGH|*|*|tariff_11",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_14|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 69,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12"
+      ]
+    },
+    {
+      "replicate": 70,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_11",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 71,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 72,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_13",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_11|MID|*|*|tariff_4"
+      ]
+    },
+    {
+      "replicate": 73,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_13",
+        "tariff_11|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 74,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|MID|*|*|tariff_10",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 75,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 76,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 77,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_14|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 78,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 79,
+      "top_k": [
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_13|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 80,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 81,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 82,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_12|HIGH|*|*|tariff_11"
+      ]
+    },
+    {
+      "replicate": 83,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 84,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_11",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_12|HIGH|*|*|tariff_11",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_11|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 85,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_10",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 86,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_12|HIGH|*|*|tariff_11"
+      ]
+    },
+    {
+      "replicate": 87,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|HIGH|*|*|tariff_11",
+        "tariff_11|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 88,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_4",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 89,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 90,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_21",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_4"
+      ]
+    },
+    {
+      "replicate": 91,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|MID|*|*|tariff_10",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_11|HIGH|*|*|tariff_12"
+      ]
+    },
+    {
+      "replicate": 92,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_11",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 93,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12"
+      ]
+    },
+    {
+      "replicate": 94,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_14|HIGH|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 95,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 96,
+      "top_k": [
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 97,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 98,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 99,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_11",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 100,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_12|HIGH|*|*|tariff_11",
+        "tariff_10|HIGH|*|*|tariff_16",
+        "tariff_13|LOW|*|*|tariff_10"
+      ]
+    },
+    {
+      "replicate": 101,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_10"
+      ]
+    },
+    {
+      "replicate": 102,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_10",
+        "tariff_12|HIGH|*|*|tariff_11",
+        "tariff_11|MID|*|*|tariff_4",
+        "tariff_14|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 103,
+      "top_k": [
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_11"
+      ]
+    },
+    {
+      "replicate": 104,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 105,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_9",
+        "tariff_11|MID|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 106,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_11",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 107,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|MID|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 108,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_10",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_10|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 109,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_4"
+      ]
+    },
+    {
+      "replicate": 110,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_11",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 111,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 112,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_10",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 113,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_1",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_10|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 114,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 115,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_4|LOW|*|*|tariff_10",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_10"
+      ]
+    },
+    {
+      "replicate": 116,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_11",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 117,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_13",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_12|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 118,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 119,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 120,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 121,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_11|MID|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_10|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 122,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_12|HIGH|*|*|tariff_11"
+      ]
+    },
+    {
+      "replicate": 123,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_4|MID|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 124,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_10|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 125,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_11",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_14|LOW|*|*|tariff_1",
+        "tariff_10|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 126,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_10",
+        "tariff_11|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 127,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 128,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_11|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 129,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 130,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 131,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 132,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11"
+      ]
+    },
+    {
+      "replicate": 133,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 134,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 135,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_10",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 136,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_11|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 137,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_14|HIGH|*|*|tariff_8",
+        "tariff_12|HIGH|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 138,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_13",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_13|LOW|*|*|tariff_10",
+        "tariff_12|HIGH|*|*|tariff_11"
+      ]
+    },
+    {
+      "replicate": 139,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_4",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 140,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_10",
+        "tariff_14|LOW|*|*|tariff_1",
+        "tariff_11|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 141,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_10|MID|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 142,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 143,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_8|MID|*|*|tariff_12",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 144,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 145,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_12"
+      ]
+    },
+    {
+      "replicate": 146,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_11|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 147,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 148,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 149,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_4"
+      ]
+    },
+    {
+      "replicate": 150,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_10|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 151,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_21"
+      ]
+    },
+    {
+      "replicate": 152,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|HIGH|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 153,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_10",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_11|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 154,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_21",
+        "tariff_14|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 155,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_11",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 156,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 157,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_4",
+        "tariff_12|HIGH|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 158,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_11",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_10|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 159,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_11|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 160,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 161,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 162,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_11",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 163,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 164,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 165,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_10|HIGH|*|*|tariff_16",
+        "tariff_11|MID|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 166,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 167,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_13|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 168,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_4",
+        "tariff_14|MID|*|*|tariff_10"
+      ]
+    },
+    {
+      "replicate": 169,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 170,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_4|HIGH|*|*|tariff_12"
+      ]
+    },
+    {
+      "replicate": 171,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_10|LOW|*|*|tariff_4",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 172,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_13",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 173,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|MID|*|*|tariff_10",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 174,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_11",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 175,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_10|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 176,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 177,
+      "top_k": [
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_4",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 178,
+      "top_k": [
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 179,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 180,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_10",
+        "tariff_11|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 181,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_10"
+      ]
+    },
+    {
+      "replicate": 182,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_11",
+        "tariff_4|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 183,
+      "top_k": [
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 184,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_21",
+        "tariff_14|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 185,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 186,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_12",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 187,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 188,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 189,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_10|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 190,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_10",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 191,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_11",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_11|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_10"
+      ]
+    },
+    {
+      "replicate": 192,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_4",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|HIGH|*|*|tariff_16"
+      ]
+    },
+    {
+      "replicate": 193,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 194,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_9"
+      ]
+    },
+    {
+      "replicate": 195,
+      "top_k": [
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 196,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 197,
+      "top_k": [
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_13|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_11",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_12|LOW|*|*|tariff_8",
+        "tariff_11|HIGH|*|*|tariff_12",
+        "tariff_12|MID|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 198,
+      "top_k": [
+        "tariff_13|MID|*|*|tariff_9",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_4|MID|*|*|tariff_8",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_14|MID|*|*|tariff_9",
+        "tariff_11|LOW|*|*|tariff_8",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_8|HIGH|*|*|tariff_16",
+        "tariff_13|LOW|*|*|tariff_8",
+        "tariff_14|LOW|*|*|tariff_8"
+      ]
+    },
+    {
+      "replicate": 199,
+      "top_k": [
+        "tariff_4|MID|*|*|tariff_9",
+        "tariff_8|MID|*|*|tariff_10",
+        "tariff_8|LOW|*|*|tariff_9",
+        "tariff_13|MID|*|*|tariff_10",
+        "tariff_10|LOW|*|*|tariff_9",
+        "tariff_4|LOW|*|*|tariff_9",
+        "tariff_10|MID|*|*|tariff_11",
+        "tariff_11|LOW|*|*|tariff_9",
+        "tariff_12|MID|*|*|tariff_8",
+        "tariff_12|HIGH|*|*|tariff_11",
+        "tariff_12|LOW|*|*|tariff_11",
+        "tariff_11|MID|*|*|tariff_8"
+      ]
+    }
+  ],
+  "bootstrap_summary": {
+    "candidates": [
+      {
+        "key": "tariff_8|LOW|*|*|tariff_9",
+        "baseline_rank": 3,
+        "baseline_support": 26,
+        "baseline_prior": 1.3906199574436398,
+        "top_k_count": 200,
+        "top_k_fraction": 1.0,
+        "present_count": 200,
+        "absent_count": 0,
+        "rank_quantiles_when_present": {
+          "p10": 1.0,
+          "median": 3.0,
+          "p90": 5.0
+        }
+      },
+      {
+        "key": "tariff_4|LOW|*|*|tariff_9",
+        "baseline_rank": 5,
+        "baseline_support": 17,
+        "baseline_prior": 1.0964622392584173,
+        "top_k_count": 193,
+        "top_k_fraction": 0.965,
+        "present_count": 200,
+        "absent_count": 0,
+        "rank_quantiles_when_present": {
+          "p10": 5.0,
+          "median": 6.0,
+          "p90": 8.0
+        }
+      },
+      {
+        "key": "tariff_8|MID|*|*|tariff_10",
+        "baseline_rank": 1,
+        "baseline_support": 182,
+        "baseline_prior": 0.3108241948676902,
+        "top_k_count": 174,
+        "top_k_fraction": 0.87,
+        "present_count": 197,
+        "absent_count": 3,
+        "rank_quantiles_when_present": {
+          "p10": 1.0,
+          "median": 2.0,
+          "p90": 55.0
+        }
+      },
+      {
+        "key": "tariff_12|MID|*|*|tariff_8",
+        "baseline_rank": 7,
+        "baseline_support": 78,
+        "baseline_prior": 0.37274154405723486,
+        "top_k_count": 165,
+        "top_k_fraction": 0.825,
+        "present_count": 200,
+        "absent_count": 0,
+        "rank_quantiles_when_present": {
+          "p10": 7.0,
+          "median": 9.0,
+          "p90": 14.0
+        }
+      },
+      {
+        "key": "tariff_13|MID|*|*|tariff_8",
+        "baseline_rank": 4,
+        "baseline_support": 234,
+        "baseline_prior": 0.3602357105470829,
+        "top_k_count": 165,
+        "top_k_fraction": 0.825,
+        "present_count": 195,
+        "absent_count": 5,
+        "rank_quantiles_when_present": {
+          "p10": 2.0,
+          "median": 4.0,
+          "p90": 56.0
+        }
+      },
+      {
+        "key": "tariff_10|MID|*|*|tariff_11",
+        "baseline_rank": 6,
+        "baseline_support": 86,
+        "baseline_prior": 0.2787596258827557,
+        "top_k_count": 155,
+        "top_k_fraction": 0.775,
+        "present_count": 187,
+        "absent_count": 13,
+        "rank_quantiles_when_present": {
+          "p10": 5.0,
+          "median": 8.0,
+          "p90": 61.0
+        }
+      },
+      {
+        "key": "tariff_4|MID|*|*|tariff_8",
+        "baseline_rank": 2,
+        "baseline_support": 408,
+        "baseline_prior": 0.32185448171133835,
+        "top_k_count": 112,
+        "top_k_fraction": 0.56,
+        "present_count": 197,
+        "absent_count": 3,
+        "rank_quantiles_when_present": {
+          "p10": 1.0,
+          "median": 4.0,
+          "p90": 57.0
+        }
+      },
+      {
+        "key": "tariff_10|LOW|*|*|tariff_9",
+        "baseline_rank": 9,
+        "baseline_support": 8,
+        "baseline_prior": 0.5544462745843555,
+        "top_k_count": 105,
+        "top_k_fraction": 0.525,
+        "present_count": 169,
+        "absent_count": 31,
+        "rank_quantiles_when_present": {
+          "p10": 7.0,
+          "median": 11.0,
+          "p90": 33.40000000000012
+        }
+      },
+      {
+        "key": "tariff_14|MID|*|*|tariff_9",
+        "baseline_rank": 11,
+        "baseline_support": 7,
+        "baseline_prior": 0.23267413302767584,
+        "top_k_count": 104,
+        "top_k_fraction": 0.52,
+        "present_count": 150,
+        "absent_count": 50,
+        "rank_quantiles_when_present": {
+          "p10": 5.0,
+          "median": 9.0,
+          "p90": 23.0
+        }
+      },
+      {
+        "key": "tariff_11|LOW|*|*|tariff_8",
+        "baseline_rank": 10,
+        "baseline_support": 16,
+        "baseline_prior": 0.5448248138694254,
+        "top_k_count": 100,
+        "top_k_fraction": 0.5,
+        "present_count": 181,
+        "absent_count": 19,
+        "rank_quantiles_when_present": {
+          "p10": 7.0,
+          "median": 12.0,
+          "p90": 66.0
+        }
+      },
+      {
+        "key": "tariff_11|HIGH|*|*|tariff_12",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 92,
+        "top_k_fraction": 0.46,
+        "present_count": 101,
+        "absent_count": 99,
+        "rank_quantiles_when_present": {
+          "p10": 4.0,
+          "median": 7.0,
+          "p90": 12.0
+        }
+      },
+      {
+        "key": "tariff_13|LOW|*|*|tariff_8",
+        "baseline_rank": 12,
+        "baseline_support": 20,
+        "baseline_prior": 0.6221279185901666,
+        "top_k_count": 87,
+        "top_k_fraction": 0.435,
+        "present_count": 186,
+        "absent_count": 14,
+        "rank_quantiles_when_present": {
+          "p10": 9.0,
+          "median": 13.0,
+          "p90": 67.0
+        }
+      },
+      {
+        "key": "tariff_8|HIGH|*|*|tariff_16",
+        "baseline_rank": 8,
+        "baseline_support": 0,
+        "baseline_prior": 0.0,
+        "top_k_count": 78,
+        "top_k_fraction": 0.39,
+        "present_count": 177,
+        "absent_count": 23,
+        "rank_quantiles_when_present": {
+          "p10": 10.0,
+          "median": 13.0,
+          "p90": 62.0
+        }
+      },
+      {
+        "key": "tariff_14|LOW|*|*|tariff_9",
+        "baseline_rank": 13,
+        "baseline_support": 21,
+        "baseline_prior": 0.6268006240473069,
+        "top_k_count": 76,
+        "top_k_fraction": 0.38,
+        "present_count": 176,
+        "absent_count": 24,
+        "rank_quantiles_when_present": {
+          "p10": 9.0,
+          "median": 13.0,
+          "p90": 67.0
+        }
+      },
+      {
+        "key": "tariff_4|MID|*|*|tariff_9",
+        "baseline_rank": 56,
+        "baseline_support": 11,
+        "baseline_prior": 0.3448676843432391,
+        "top_k_count": 74,
+        "top_k_fraction": 0.37,
+        "present_count": 147,
+        "absent_count": 53,
+        "rank_quantiles_when_present": {
+          "p10": 1.0,
+          "median": 4.0,
+          "p90": 57.0
+        }
+      },
+      {
+        "key": "tariff_12|LOW|*|*|tariff_8",
+        "baseline_rank": 15,
+        "baseline_support": 6,
+        "baseline_prior": 0.38190144022992006,
+        "top_k_count": 48,
+        "top_k_fraction": 0.24,
+        "present_count": 168,
+        "absent_count": 32,
+        "rank_quantiles_when_present": {
+          "p10": 9.7,
+          "median": 16.0,
+          "p90": 67.30000000000001
+        }
+      },
+      {
+        "key": "tariff_8|HIGH|*|*|tariff_10",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 43,
+        "top_k_fraction": 0.215,
+        "present_count": 56,
+        "absent_count": 144,
+        "rank_quantiles_when_present": {
+          "p10": 2.0,
+          "median": 6.0,
+          "p90": 57.0
+        }
+      },
+      {
+        "key": "tariff_14|LOW|*|*|tariff_8",
+        "baseline_rank": 67,
+        "baseline_support": 9,
+        "baseline_prior": 0.5201149425287357,
+        "top_k_count": 37,
+        "top_k_fraction": 0.185,
+        "present_count": 124,
+        "absent_count": 76,
+        "rank_quantiles_when_present": {
+          "p10": 9.0,
+          "median": 63.0,
+          "p90": 68.0
+        }
+      },
+      {
+        "key": "tariff_11|LOW|*|*|tariff_9",
+        "baseline_rank": 64,
+        "baseline_support": 4,
+        "baseline_prior": 0.34826260762607625,
+        "top_k_count": 36,
+        "top_k_fraction": 0.18,
+        "present_count": 135,
+        "absent_count": 65,
+        "rank_quantiles_when_present": {
+          "p10": 9.0,
+          "median": 61.0,
+          "p90": 67.0
+        }
+      },
+      {
+        "key": "tariff_8|HIGH|*|*|tariff_12",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 30,
+        "top_k_fraction": 0.15,
+        "present_count": 35,
+        "absent_count": 165,
+        "rank_quantiles_when_present": {
+          "p10": 1.0,
+          "median": 6.0,
+          "p90": 56.0
+        }
+      },
+      {
+        "key": "tariff_13|MID|*|*|tariff_10",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 27,
+        "top_k_fraction": 0.135,
+        "present_count": 95,
+        "absent_count": 105,
+        "rank_quantiles_when_present": {
+          "p10": 2.0,
+          "median": 56.0,
+          "p90": 58.0
+        }
+      },
+      {
+        "key": "tariff_8|HIGH|*|*|tariff_11",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 24,
+        "top_k_fraction": 0.12,
+        "present_count": 29,
+        "absent_count": 171,
+        "rank_quantiles_when_present": {
+          "p10": 1.8000000000000003,
+          "median": 6.0,
+          "p90": 58.0
+        }
+      },
+      {
+        "key": "tariff_11|MID|*|*|tariff_8",
+        "baseline_rank": 17,
+        "baseline_support": 103,
+        "baseline_prior": 0.1479240593236865,
+        "top_k_count": 23,
+        "top_k_fraction": 0.115,
+        "present_count": 147,
+        "absent_count": 53,
+        "rank_quantiles_when_present": {
+          "p10": 11.600000000000001,
+          "median": 22.0,
+          "p90": 70.4
+        }
+      },
+      {
+        "key": "tariff_10|MID|*|*|tariff_12",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 22,
+        "top_k_fraction": 0.11,
+        "present_count": 76,
+        "absent_count": 124,
+        "rank_quantiles_when_present": {
+          "p10": 7.0,
+          "median": 60.0,
+          "p90": 64.5
+        }
+      },
+      {
+        "key": "tariff_13|LOW|*|*|tariff_9",
+        "baseline_rank": 66,
+        "baseline_support": 8,
+        "baseline_prior": 0.43897366269112675,
+        "top_k_count": 22,
+        "top_k_fraction": 0.11,
+        "present_count": 123,
+        "absent_count": 77,
+        "rank_quantiles_when_present": {
+          "p10": 10.200000000000001,
+          "median": 63.0,
+          "p90": 68.8
+        }
+      },
+      {
+        "key": "tariff_11|MID|*|*|tariff_10",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 19,
+        "top_k_fraction": 0.095,
+        "present_count": 69,
+        "absent_count": 131,
+        "rank_quantiles_when_present": {
+          "p10": 10.0,
+          "median": 14.0,
+          "p90": 69.0
+        }
+      },
+      {
+        "key": "tariff_4|HIGH|*|*|tariff_12",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 19,
+        "top_k_fraction": 0.095,
+        "present_count": 24,
+        "absent_count": 176,
+        "rank_quantiles_when_present": {
+          "p10": 5.0,
+          "median": 7.5,
+          "p90": 14.0
+        }
+      },
+      {
+        "key": "tariff_12|HIGH|*|*|tariff_11",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 17,
+        "top_k_fraction": 0.085,
+        "present_count": 74,
+        "absent_count": 126,
+        "rank_quantiles_when_present": {
+          "p10": 10.3,
+          "median": 16.0,
+          "p90": 25.0
+        }
+      },
+      {
+        "key": "tariff_8|MID|*|*|tariff_11",
+        "baseline_rank": 55,
+        "baseline_support": 99,
+        "baseline_prior": 0.1581721696829193,
+        "top_k_count": 16,
+        "top_k_fraction": 0.08,
+        "present_count": 114,
+        "absent_count": 86,
+        "rank_quantiles_when_present": {
+          "p10": 4.0,
+          "median": 55.0,
+          "p90": 58.0
+        }
+      },
+      {
+        "key": "tariff_10|MID|*|*|tariff_8",
+        "baseline_rank": 60,
+        "baseline_support": 138,
+        "baseline_prior": 0.1376842156354033,
+        "top_k_count": 15,
+        "top_k_fraction": 0.075,
+        "present_count": 132,
+        "absent_count": 68,
+        "rank_quantiles_when_present": {
+          "p10": 11.0,
+          "median": 61.0,
+          "p90": 64.0
+        }
+      },
+      {
+        "key": "tariff_12|LOW|*|*|tariff_11",
+        "baseline_rank": 69,
+        "baseline_support": 6,
+        "baseline_prior": 0.2597914448584863,
+        "top_k_count": 15,
+        "top_k_fraction": 0.075,
+        "present_count": 103,
+        "absent_count": 97,
+        "rank_quantiles_when_present": {
+          "p10": 11.0,
+          "median": 63.0,
+          "p90": 73.0
+        }
+      },
+      {
+        "key": "tariff_4|MID|*|*|tariff_11",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 14,
+        "top_k_fraction": 0.07,
+        "present_count": 52,
+        "absent_count": 148,
+        "rank_quantiles_when_present": {
+          "p10": 2.0,
+          "median": 56.0,
+          "p90": 57.9
+        }
+      },
+      {
+        "key": "tariff_11|MID|*|*|tariff_4",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 10,
+        "top_k_fraction": 0.05,
+        "present_count": 67,
+        "absent_count": 133,
+        "rank_quantiles_when_present": {
+          "p10": 12.0,
+          "median": 21.0,
+          "p90": 71.4
+        }
+      },
+      {
+        "key": "tariff_10|HIGH|*|*|tariff_16",
+        "baseline_rank": 14,
+        "baseline_support": 0,
+        "baseline_prior": 0.0,
+        "top_k_count": 9,
+        "top_k_fraction": 0.045,
+        "present_count": 200,
+        "absent_count": 0,
+        "rank_quantiles_when_present": {
+          "p10": 13.0,
+          "median": 15.0,
+          "p90": 17.0
+        }
+      },
+      {
+        "key": "tariff_13|LOW|*|*|tariff_10",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 8,
+        "top_k_fraction": 0.04,
+        "present_count": 74,
+        "absent_count": 126,
+        "rank_quantiles_when_present": {
+          "p10": 12.3,
+          "median": 64.0,
+          "p90": 69.7
+        }
+      },
+      {
+        "key": "tariff_13|MID|*|*|tariff_9",
+        "baseline_rank": 58,
+        "baseline_support": 28,
+        "baseline_prior": 0.2141537989630797,
+        "top_k_count": 7,
+        "top_k_fraction": 0.035,
+        "present_count": 76,
+        "absent_count": 124,
+        "rank_quantiles_when_present": {
+          "p10": 55.0,
+          "median": 57.0,
+          "p90": 59.0
+        }
+      },
+      {
+        "key": "tariff_8|MID|*|*|tariff_9",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 7,
+        "top_k_fraction": 0.035,
+        "present_count": 38,
+        "absent_count": 162,
+        "rank_quantiles_when_present": {
+          "p10": 3.0,
+          "median": 56.0,
+          "p90": 57.300000000000004
+        }
+      },
+      {
+        "key": "tariff_14|MID|*|*|tariff_13",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 6,
+        "top_k_fraction": 0.03,
+        "present_count": 25,
+        "absent_count": 175,
+        "rank_quantiles_when_present": {
+          "p10": 7.4,
+          "median": 60.0,
+          "p90": 63.6
+        }
+      },
+      {
+        "key": "tariff_14|LOW|*|*|tariff_1",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 5,
+        "top_k_fraction": 0.025,
+        "present_count": 35,
+        "absent_count": 165,
+        "rank_quantiles_when_present": {
+          "p10": 12.0,
+          "median": 65.0,
+          "p90": 68.6
+        }
+      },
+      {
+        "key": "tariff_11|LOW|*|*|tariff_21",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 4,
+        "top_k_fraction": 0.02,
+        "present_count": 45,
+        "absent_count": 155,
+        "rank_quantiles_when_present": {
+          "p10": 13.4,
+          "median": 65.0,
+          "p90": 69.0
+        }
+      },
+      {
+        "key": "tariff_13|HIGH|*|*|tariff_8",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 4,
+        "top_k_fraction": 0.02,
+        "present_count": 19,
+        "absent_count": 181,
+        "rank_quantiles_when_present": {
+          "p10": 11.8,
+          "median": 17.0,
+          "p90": 24.4
+        }
+      },
+      {
+        "key": "tariff_14|LOW|*|*|tariff_4",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 4,
+        "top_k_fraction": 0.02,
+        "present_count": 45,
+        "absent_count": 155,
+        "rank_quantiles_when_present": {
+          "p10": 13.0,
+          "median": 64.0,
+          "p90": 68.6
+        }
+      },
+      {
+        "key": "tariff_14|MID|*|*|tariff_10",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 4,
+        "top_k_fraction": 0.02,
+        "present_count": 21,
+        "absent_count": 179,
+        "rank_quantiles_when_present": {
+          "p10": 12.0,
+          "median": 60.0,
+          "p90": 65.0
+        }
+      },
+      {
+        "key": "tariff_10|LOW|*|*|tariff_4",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 3,
+        "top_k_fraction": 0.015,
+        "present_count": 54,
+        "absent_count": 146,
+        "rank_quantiles_when_present": {
+          "p10": 15.0,
+          "median": 63.0,
+          "p90": 70.0
+        }
+      },
+      {
+        "key": "tariff_4|LOW|*|*|tariff_10",
+        "baseline_rank": 59,
+        "baseline_support": 17,
+        "baseline_prior": 0.46033432597190105,
+        "top_k_count": 3,
+        "top_k_fraction": 0.015,
+        "present_count": 86,
+        "absent_count": 114,
+        "rank_quantiles_when_present": {
+          "p10": 59.0,
+          "median": 60.0,
+          "p90": 61.0
+        }
+      },
+      {
+        "key": "tariff_8|MID|*|*|tariff_12",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 3,
+        "top_k_fraction": 0.015,
+        "present_count": 16,
+        "absent_count": 184,
+        "rank_quantiles_when_present": {
+          "p10": 4.5,
+          "median": 55.0,
+          "p90": 57.5
+        }
+      },
+      {
+        "key": "tariff_10|LOW|*|*|tariff_13",
+        "baseline_rank": 63,
+        "baseline_support": 2,
+        "baseline_prior": 0.18094975317878487,
+        "top_k_count": 2,
+        "top_k_fraction": 0.01,
+        "present_count": 86,
+        "absent_count": 114,
+        "rank_quantiles_when_present": {
+          "p10": 17.0,
+          "median": 64.0,
+          "p90": 71.0
+        }
+      },
+      {
+        "key": "tariff_11|MID|*|*|tariff_9",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 2,
+        "top_k_fraction": 0.01,
+        "present_count": 38,
+        "absent_count": 162,
+        "rank_quantiles_when_present": {
+          "p10": 13.0,
+          "median": 64.0,
+          "p90": 73.0
+        }
+      },
+      {
+        "key": "tariff_12|MID|*|*|tariff_10",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 2,
+        "top_k_fraction": 0.01,
+        "present_count": 71,
+        "absent_count": 129,
+        "rank_quantiles_when_present": {
+          "p10": 61.0,
+          "median": 63.0,
+          "p90": 67.0
+        }
+      },
+      {
+        "key": "tariff_14|HIGH|*|*|tariff_8",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 2,
+        "top_k_fraction": 0.01,
+        "present_count": 3,
+        "absent_count": 197,
+        "rank_quantiles_when_present": {
+          "p10": 10.2,
+          "median": 11.0,
+          "p90": 12.6
+        }
+      },
+      {
+        "key": "tariff_4|LOW|*|*|tariff_13",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 2,
+        "top_k_fraction": 0.01,
+        "present_count": 101,
+        "absent_count": 99,
+        "rank_quantiles_when_present": {
+          "p10": 59.0,
+          "median": 60.0,
+          "p90": 62.0
+        }
+      },
+      {
+        "key": "tariff_10|HIGH|*|*|tariff_11",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 1,
+        "top_k_fraction": 0.005,
+        "present_count": 1,
+        "absent_count": 199,
+        "rank_quantiles_when_present": {
+          "p10": 12.0,
+          "median": 12.0,
+          "p90": 12.0
+        }
+      },
+      {
+        "key": "tariff_10|HIGH|*|*|tariff_12",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 1,
+        "top_k_fraction": 0.005,
+        "present_count": 1,
+        "absent_count": 199,
+        "rank_quantiles_when_present": {
+          "p10": 6.0,
+          "median": 6.0,
+          "p90": 6.0
+        }
+      },
+      {
+        "key": "tariff_11|LOW|*|*|tariff_4",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 1,
+        "top_k_fraction": 0.005,
+        "present_count": 13,
+        "absent_count": 187,
+        "rank_quantiles_when_present": {
+          "p10": 24.000000000000007,
+          "median": 64.0,
+          "p90": 68.8
+        }
+      },
+      {
+        "key": "tariff_11|MID|*|*|tariff_12",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 1,
+        "top_k_fraction": 0.005,
+        "present_count": 17,
+        "absent_count": 183,
+        "rank_quantiles_when_present": {
+          "p10": 20.2,
+          "median": 66.0,
+          "p90": 71.4
+        }
+      },
+      {
+        "key": "tariff_12|MID|*|*|tariff_4",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 1,
+        "top_k_fraction": 0.005,
+        "present_count": 28,
+        "absent_count": 172,
+        "rank_quantiles_when_present": {
+          "p10": 61.0,
+          "median": 64.0,
+          "p90": 66.3
+        }
+      },
+      {
+        "key": "tariff_13|MID|*|*|tariff_4",
+        "baseline_rank": null,
+        "baseline_support": null,
+        "baseline_prior": null,
+        "top_k_count": 1,
+        "top_k_fraction": 0.005,
+        "present_count": 28,
+        "absent_count": 172,
+        "rank_quantiles_when_present": {
+          "p10": 56.0,
+          "median": 57.0,
+          "p90": 59.0
+        }
+      }
+    ],
+    "first_choice_counts_by_cell": {
+      "tariff_10|HIGH|*|*": {
+        "tariff_16": 198,
+        "tariff_11": 1,
+        "tariff_12": 1
+      },
+      "tariff_10|LOW|*|*": {
+        "tariff_9": 153,
+        "tariff_13": 19,
+        "tariff_4": 17,
+        "tariff_8": 5,
+        "tariff_21": 4,
+        "tariff_11": 2
+      },
+      "tariff_10|MID|*|*": {
+        "tariff_11": 161,
+        "tariff_12": 23,
+        "tariff_8": 16
+      },
+      "tariff_11|HIGH|*|*": {
+        "tariff_12": 101,
+        "tariff_16": 99
+      },
+      "tariff_11|LOW|*|*": {
+        "tariff_8": 133,
+        "tariff_9": 56,
+        "tariff_21": 9,
+        "tariff_4": 2
+      },
+      "tariff_11|MID|*|*": {
+        "tariff_8": 91,
+        "tariff_10": 51,
+        "tariff_4": 37,
+        "tariff_9": 16,
+        "tariff_12": 4,
+        "tariff_16": 1
+      },
+      "tariff_12|HIGH|*|*": {
+        "tariff_16": 122,
+        "tariff_11": 72,
+        "tariff_10": 6
+      },
+      "tariff_12|LOW|*|*": {
+        "tariff_8": 135,
+        "tariff_11": 47,
+        "tariff_2": 10,
+        "tariff_13": 8
+      },
+      "tariff_12|MID|*|*": {
+        "tariff_8": 196,
+        "tariff_10": 3,
+        "tariff_4": 1
+      },
+      "tariff_13|HIGH|*|*": {
+        "tariff_16": 162,
+        "tariff_8": 19,
+        "tariff_10": 18,
+        "tariff_1": 1
+      },
+      "tariff_13|LOW|*|*": {
+        "tariff_8": 137,
+        "tariff_9": 43,
+        "tariff_10": 19,
+        "tariff_1": 1
+      },
+      "tariff_13|MID|*|*": {
+        "tariff_8": 165,
+        "tariff_10": 27,
+        "tariff_9": 7,
+        "tariff_4": 1
+      },
+      "tariff_14|HIGH|*|*": {
+        "tariff_16": 196,
+        "tariff_8": 3,
+        "tariff_11": 1
+      },
+      "tariff_14|LOW|*|*": {
+        "tariff_9": 121,
+        "tariff_8": 54,
+        "tariff_4": 16,
+        "tariff_1": 8,
+        "tariff_21": 1
+      },
+      "tariff_14|MID|*|*": {
+        "tariff_9": 145,
+        "tariff_16": 36,
+        "tariff_13": 10,
+        "tariff_10": 7,
+        "tariff_8": 1,
+        "tariff_4": 1
+      },
+      "tariff_15|HIGH|*|*": {
+        "tariff_16": 143,
+        "tariff_12": 35,
+        "tariff_10": 18,
+        "tariff_1": 4
+      },
+      "tariff_15|LOW|*|*": {
+        "tariff_8": 77,
+        "tariff_9": 69,
+        "tariff_13": 47,
+        "tariff_10": 5,
+        "tariff_21": 2
+      },
+      "tariff_15|MID|*|*": {
+        "tariff_8": 126,
+        "tariff_12": 36,
+        "tariff_10": 31,
+        "tariff_4": 7
+      },
+      "tariff_16|MID|*|*": {
+        "tariff_8": 145,
+        "tariff_9": 41,
+        "tariff_11": 6,
+        "tariff_10": 5,
+        "tariff_21": 2,
+        "tariff_4": 1
+      },
+      "tariff_17|HIGH|*|*": {
+        "tariff_11": 74,
+        "tariff_16": 59,
+        "tariff_10": 55,
+        "tariff_4": 12
+      },
+      "tariff_17|MID|*|*": {
+        "tariff_8": 164,
+        "tariff_9": 26,
+        "tariff_10": 9,
+        "tariff_4": 1
+      },
+      "tariff_18|HIGH|*|*": {
+        "tariff_11": 126,
+        "tariff_16": 61,
+        "tariff_10": 13
+      },
+      "tariff_18|LOW|*|*": {
+        "tariff_8": 135,
+        "tariff_9": 56,
+        "tariff_11": 5,
+        "tariff_4": 2,
+        "tariff_12": 1,
+        "tariff_13": 1
+      },
+      "tariff_18|MID|*|*": {
+        "tariff_8": 115,
+        "tariff_10": 48,
+        "tariff_12": 19,
+        "tariff_4": 11,
+        "tariff_11": 7
+      },
+      "tariff_19|HIGH|*|*": {
+        "tariff_16": 166,
+        "tariff_10": 26,
+        "tariff_11": 8
+      },
+      "tariff_19|LOW|*|*": {
+        "tariff_13": 129,
+        "tariff_9": 48,
+        "tariff_4": 12,
+        "tariff_21": 8,
+        "tariff_8": 2,
+        "tariff_10": 1
+      },
+      "tariff_19|MID|*|*": {
+        "tariff_8": 178,
+        "tariff_10": 7,
+        "tariff_4": 6,
+        "tariff_9": 6,
+        "tariff_16": 1,
+        "tariff_13": 1,
+        "tariff_11": 1
+      },
+      "tariff_1|HIGH|*|*": {
+        "tariff_16": 149,
+        "tariff_10": 45,
+        "tariff_4": 4,
+        "tariff_12": 2
+      },
+      "tariff_1|LOW|*|*": {
+        "tariff_9": 182,
+        "tariff_4": 10,
+        "tariff_13": 7,
+        "tariff_8": 1
+      },
+      "tariff_1|MID|*|*": {
+        "tariff_9": 94,
+        "tariff_4": 56,
+        "tariff_8": 39,
+        "tariff_11": 7,
+        "tariff_10": 4
+      },
+      "tariff_20|HIGH|*|*": {
+        "tariff_16": 138,
+        "tariff_10": 52,
+        "tariff_11": 7,
+        "tariff_12": 3
+      },
+      "tariff_21|LOW|*|*": {
+        "tariff_16": 200
+      },
+      "tariff_21|MID|*|*": {
+        "tariff_16": 200
+      },
+      "tariff_2|MID|*|*": {
+        "tariff_8": 119,
+        "tariff_4": 53,
+        "tariff_10": 16,
+        "tariff_12": 8,
+        "tariff_9": 3,
+        "tariff_11": 1
+      },
+      "tariff_3|HIGH|*|*": {
+        "tariff_16": 163,
+        "tariff_12": 33,
+        "tariff_8": 4
+      },
+      "tariff_3|LOW|*|*": {
+        "tariff_9": 118,
+        "tariff_10": 53,
+        "tariff_8": 13,
+        "tariff_11": 10,
+        "tariff_13": 6
+      },
+      "tariff_3|MID|*|*": {
+        "tariff_8": 174,
+        "tariff_10": 17,
+        "tariff_11": 9
+      },
+      "tariff_4|HIGH|*|*": {
+        "tariff_16": 176,
+        "tariff_12": 24
+      },
+      "tariff_4|LOW|*|*": {
+        "tariff_9": 195,
+        "tariff_10": 3,
+        "tariff_13": 2
+      },
+      "tariff_4|MID|*|*": {
+        "tariff_8": 112,
+        "tariff_9": 74,
+        "tariff_11": 14
+      },
+      "tariff_5|HIGH|*|*": {
+        "tariff_16": 150,
+        "tariff_10": 26,
+        "tariff_11": 16,
+        "tariff_8": 8
+      },
+      "tariff_5|LOW|*|*": {
+        "tariff_13": 166,
+        "tariff_4": 20,
+        "tariff_8": 13,
+        "tariff_9": 1
+      },
+      "tariff_5|MID|*|*": {
+        "tariff_4": 144,
+        "tariff_16": 41,
+        "tariff_11": 8,
+        "tariff_1": 2,
+        "tariff_13": 2,
+        "tariff_12": 1,
+        "tariff_21": 1,
+        "tariff_8": 1
+      },
+      "tariff_6|HIGH|*|*": {
+        "tariff_16": 165,
+        "tariff_11": 27,
+        "tariff_12": 8
+      },
+      "tariff_6|LOW|*|*": {
+        "tariff_13": 114,
+        "tariff_4": 85,
+        "tariff_12": 1
+      },
+      "tariff_6|MID|*|*": {
+        "tariff_11": 123,
+        "tariff_8": 29,
+        "tariff_16": 23,
+        "tariff_10": 12,
+        "tariff_4": 9,
+        "tariff_9": 4
+      },
+      "tariff_7|HIGH|*|*": {
+        "tariff_16": 133,
+        "tariff_12": 50,
+        "tariff_11": 9,
+        "tariff_10": 7,
+        "tariff_4": 1
+      },
+      "tariff_7|LOW|*|*": {
+        "tariff_9": 173,
+        "tariff_12": 14,
+        "tariff_13": 10,
+        "tariff_4": 3
+      },
+      "tariff_7|MID|*|*": {
+        "tariff_4": 139,
+        "tariff_16": 32,
+        "tariff_8": 10,
+        "tariff_11": 8,
+        "tariff_12": 8,
+        "tariff_10": 2,
+        "tariff_13": 1
+      },
+      "tariff_8|HIGH|*|*": {
+        "tariff_16": 103,
+        "tariff_10": 43,
+        "tariff_12": 30,
+        "tariff_11": 24
+      },
+      "tariff_8|LOW|*|*": {
+        "tariff_9": 200
+      },
+      "tariff_8|MID|*|*": {
+        "tariff_10": 174,
+        "tariff_11": 16,
+        "tariff_9": 7,
+        "tariff_12": 3
+      },
+      "tariff_9|LOW|*|*": {
+        "tariff_13": 106,
+        "tariff_8": 91,
+        "tariff_4": 2,
+        "tariff_11": 1
+      },
+      "tariff_9|MID|*|*": {
+        "tariff_8": 105,
+        "tariff_4": 83,
+        "tariff_13": 6,
+        "tariff_11": 3,
+        "tariff_10": 2,
+        "tariff_16": 1
+      }
+    },
+    "top_k_jaccard": {
+      "mean": 0.5308806972181586,
+      "min": 0.2,
+      "median": 0.5,
+      "max": 0.8461538461538461
+    }
+  },
+  "leave_one_out": [
+    {
+      "key": "tariff_8|LOW|*|*|tariff_9",
+      "support": 26,
+      "cases": [
+        {
+          "removed_event_row": 0,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 613,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 670,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 804,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 2501,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 3827,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 3981,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 4194,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 4298,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 4834,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 5480,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 5826,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 5970,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 7201,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 7334,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 7434,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 9260,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 10988,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 11139,
+          "rank": 2,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 11539,
+          "rank": 2,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 11671,
+          "rank": 2,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 13474,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 13941,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 14118,
+          "rank": 2,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 14143,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 14717,
+          "rank": 4,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        }
+      ],
+      "top_k_losses": 0,
+      "first_choice_changes": 0
+    },
+    {
+      "key": "tariff_4|LOW|*|*|tariff_9",
+      "support": 17,
+      "cases": [
+        {
+          "removed_event_row": 4948,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 5873,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 5903,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 6290,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 6778,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 6841,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 7162,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 7428,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 8482,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 9364,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 9706,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 9801,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 10023,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 11746,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 12160,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 12166,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 13578,
+          "rank": 5,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        }
+      ],
+      "top_k_losses": 0,
+      "first_choice_changes": 0
+    },
+    {
+      "key": "tariff_10|LOW|*|*|tariff_9",
+      "support": 8,
+      "cases": [
+        {
+          "removed_event_row": 442,
+          "rank": 13,
+          "first_choice_target": "tariff_9",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 921,
+          "rank": 13,
+          "first_choice_target": "tariff_9",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 2013,
+          "rank": 8,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 3228,
+          "rank": 13,
+          "first_choice_target": "tariff_9",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 5755,
+          "rank": 13,
+          "first_choice_target": "tariff_9",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 6389,
+          "rank": 8,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 6896,
+          "rank": 13,
+          "first_choice_target": "tariff_9",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 10551,
+          "rank": 13,
+          "first_choice_target": "tariff_9",
+          "in_top_k": false
+        }
+      ],
+      "top_k_losses": 6,
+      "first_choice_changes": 0
+    },
+    {
+      "key": "tariff_11|LOW|*|*|tariff_8",
+      "support": 16,
+      "cases": [
+        {
+          "removed_event_row": 784,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 1430,
+          "rank": 8,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 1438,
+          "rank": 8,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 2493,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 3382,
+          "rank": 9,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 6448,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 8590,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 8871,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 9902,
+          "rank": 8,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 10031,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 10205,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 10377,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 10854,
+          "rank": 8,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 11231,
+          "rank": 8,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 12841,
+          "rank": 8,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 13841,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        }
+      ],
+      "top_k_losses": 9,
+      "first_choice_changes": 0
+    },
+    {
+      "key": "tariff_14|MID|*|*|tariff_9",
+      "support": 7,
+      "cases": [
+        {
+          "removed_event_row": 2291,
+          "rank": 7,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 4807,
+          "rank": null,
+          "first_choice_target": "tariff_16",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 6166,
+          "rank": 13,
+          "first_choice_target": "tariff_9",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 10572,
+          "rank": 13,
+          "first_choice_target": "tariff_9",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 12903,
+          "rank": 8,
+          "first_choice_target": "tariff_9",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 13062,
+          "rank": 21,
+          "first_choice_target": "tariff_9",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 13191,
+          "rank": 19,
+          "first_choice_target": "tariff_9",
+          "in_top_k": false
+        }
+      ],
+      "top_k_losses": 5,
+      "first_choice_changes": 1
+    },
+    {
+      "key": "tariff_13|LOW|*|*|tariff_8",
+      "support": 20,
+      "cases": [
+        {
+          "removed_event_row": 264,
+          "rank": 9,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 1170,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 1354,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 2643,
+          "rank": 12,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 3639,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 5202,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 6997,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 7562,
+          "rank": 12,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 8230,
+          "rank": 9,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 8307,
+          "rank": 11,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 9161,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 9289,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 10154,
+          "rank": 9,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 11577,
+          "rank": 12,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 11596,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 12090,
+          "rank": 12,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 12819,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 13133,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        },
+        {
+          "removed_event_row": 13196,
+          "rank": 12,
+          "first_choice_target": "tariff_8",
+          "in_top_k": true
+        },
+        {
+          "removed_event_row": 14779,
+          "rank": 13,
+          "first_choice_target": "tariff_8",
+          "in_top_k": false
+        }
+      ],
+      "top_k_losses": 11,
+      "first_choice_changes": 0
+    }
+  ],
+  "limitations": [
+    "Empirical event resampling does not identify causal campaign effects or population transfer.",
+    "Target profile and tariff catalogue stay fixed; absent transition cells stay absent.",
+    "All historical events are from one month; no temporal or customer-population holdout.",
+    "Rank quantiles condition on the pair being returned; absent counts are reported separately.",
+    "Single-event deletion covers only top-k historical cells with at most 30 observations."
+  ]
+}

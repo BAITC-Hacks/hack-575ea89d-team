@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "base_main": "6dad30c",
+  "comparison_kind": "candidate_generators_fixed_planner",
+  "variants": ["original", "current", "median"],
+  "original_ref": "58c794b",
+  "original_path": "research/candidates.py",
+  "seed_groups": {
+    "known_0_9": [0,1,2,3,4,5,6,7,8,9],
+    "known_30_39": [30,31,32,33,34,35,36,37,38,39],
+    "control_50_69": [50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69]
+  },
+  "bootstrap": {
+    "replicates": 200,
+    "rng_seed": 20260923,
+    "top_k": 12,
+    "unit": "unique historical event; deduplicate original events before global sampling with replacement",
+    "preserve_draw_multiplicity": "assign temporary synthetic event IDs after drawing; never change source CSV",
+    "leave_one_out": "each eligible event in baseline top-12 cells with 1..30 historical observations"
+  },
+  "rules": [
+    "Do not tune any generator or planner using these runs, including control_50_69.",
+    "All variants use the exact same current Agent/planner, data and evaluator for each seed.",
+    "This is NOT a comparison of full agents across commits.",
+    "Run variants sequentially in a rotating order; record raw wall time with no claim of isolated timing.",
+    "Preserve all failures and negative deltas; report all three seed groups separately.",
+    "Bootstrap stability is conditional ranking sensitivity, not causal campaign confidence.",
+    "Never overwrite previous result files. Record source, data, dependency and plan fingerprints."
+  ]
+}

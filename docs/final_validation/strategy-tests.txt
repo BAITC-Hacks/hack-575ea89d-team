@@ -1,0 +1,22 @@
+test_ambiguous_effect_gets_rechecked_clear_effect_stops (strategy.test_planner.PlannerTests.test_ambiguous_effect_gets_rechecked_clear_effect_stops) ... ok
+test_channel_choice_requires_observation_and_changes_with_it (strategy.test_planner.PlannerTests.test_channel_choice_requires_observation_and_changes_with_it) ... ok
+test_exhausted_pilot_api_stops_without_unbounded_retries (strategy.test_planner.PlannerTests.test_exhausted_pilot_api_stops_without_unbounded_retries) ... ok
+test_overlap_is_charged_and_only_marginal_lift_counts (strategy.test_planner.PlannerTests.test_overlap_is_charged_and_only_marginal_lift_counts) ... ok
+test_portfolio_respects_both_resources_and_campaign_count (strategy.test_planner.PlannerTests.test_portfolio_respects_both_resources_and_campaign_count) ... ok
+test_uncertain_first_offer_opens_alternative_tariff (strategy.test_planner.PlannerTests.test_uncertain_first_offer_opens_alternative_tariff) ... ok
+test_equal_value_keeps_original_choice (strategy.test_portfolio.PortfolioTests.test_equal_value_keeps_original_choice) ... ok
+test_expensive_replacement_cannot_exceed_budget (strategy.test_portfolio.PortfolioTests.test_expensive_replacement_cannot_exceed_budget) ... ok
+test_full_ten_slots_can_replace_a_weaker_campaign (strategy.test_portfolio.PortfolioTests.test_full_ten_slots_can_replace_a_weaker_campaign) ... ok
+test_negative_mandatory_fallback_is_preserved (strategy.test_portfolio.PortfolioTests.test_negative_mandatory_fallback_is_preserved) ... ok
+test_overlap_does_not_fabricate_value_for_a_duplicate (strategy.test_portfolio.PortfolioTests.test_overlap_does_not_fabricate_value_for_a_duplicate) ... ok
+test_redundant_paid_contact_is_removed (strategy.test_portfolio.PortfolioTests.test_redundant_paid_contact_is_removed) ... ok
+test_two_smaller_campaigns_escape_greedy_contact_trap (strategy.test_portfolio.PortfolioTests.test_two_smaller_campaigns_escape_greedy_contact_trap) ... ok
+test_extremely_negative_series_still_returns_one_feasible_campaign (strategy.test_stress.StressTests.test_extremely_negative_series_still_returns_one_feasible_campaign) ... ok
+test_free_channel_remains_usable_with_no_money (strategy.test_stress.StressTests.test_free_channel_remains_usable_with_no_money) ... ok
+test_low_resources_reserve_minimum_legal_pilot_and_final (strategy.test_stress.StressTests.test_low_resources_reserve_minimum_legal_pilot_and_final) ... ok
+test_seeded_noisy_scenarios_preserve_public_limits (strategy.test_stress.StressTests.test_seeded_noisy_scenarios_preserve_public_limits) ... ok
+
+----------------------------------------------------------------------
+Ran 17 tests in 0.465s
+
+OK

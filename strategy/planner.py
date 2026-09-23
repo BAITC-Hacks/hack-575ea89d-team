@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from research.candidates import build_candidates
+from strategy.portfolio import refine_portfolio
 
 FILTERS = ("filter_current_tariff", "filter_arpu_segment", "filter_data_segment", "filter_call_segment")
 
@@ -197,6 +198,11 @@ def plan_campaigns(env) -> list[dict]:
     # More ARPU at stake warrants better precision; sample size is bounded.
     while next_hypothesis < min(12, len(hypotheses)) and env.pilots_left > 0 and attempts < 20:
         arm = make_arm(hypotheses[next_hypothesis], initial_channel)
+        # The first paid pilot must leave enough for at least this final
+        # audience. A free/cheaper public channel can keep exploration legal
+        # when the cash budget is too small for SMS, including a zero budget.
+        if not arms and (arm.size + 10) * arm.cost > env.remaining_budget:
+            arm = make_arm(hypotheses[next_hypothesis], channels[0])
         next_hypothesis += 1
         selected, _ = allocate(arms, len(profile), env.remaining_budget, env.remaining_contacts)
         sample(arm, min(200, max(80, int(80 * math.sqrt(float(arm.arpu.sum()) / typical_value)))), selected)
@@ -263,5 +269,8 @@ def plan_campaigns(env) -> list[dict]:
                 break
         if not performed:
             break
-    selected, _ = allocate(arms, len(profile), env.remaining_budget, env.remaining_contacts)
+    selected, value = allocate(arms, len(profile), env.remaining_budget, env.remaining_contacts)
+    if value > 0:
+        selected = refine_portfolio(arms, selected, len(profile), env.remaining_budget,
+                                    env.remaining_contacts, pilot_credit(arms, len(profile)))
     return [{"campaign_name": f"adaptive_{i + 1}", **arm.campaign} for i, arm in enumerate(selected)]

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Центр управления сетью</title><link rel="stylesheet" href="styles.css"><script src="app.js" defer></script></head>
+<body>
+<a class="skip" href="#workspace">К инцидентам</a>
+<header><div class="brand"><span class="logo" aria-hidden="true">N</span><div><strong>Network Intelligence</strong><small>Центр управления сетью</small></div></div><span class="source">Демо · синтетические данные</span></header>
+<main>
+<div class="heading"><div><p class="eyebrow">РАБОЧЕЕ МЕСТО ОПЕРАТОРА</p><h1>Что происходит в сети?</h1><p>Выберите инцидент, оцените решение и передайте его команде.</p></div><button id="refresh" class="secondary">Обновить данные</button></div>
+<div class="data-status"><span id="api-indicator" class="api-indicator" role="status" title="Состояние по последнему запросу. Кнопка «Обновить данные» проверяет связь заново.">Ожидание API</span><span id="data-freshness" title="Время получения данных браузером, а не время измерения нагрузки.">Сеть ещё не загружена</span></div>
+<div id="overview" class="overview" aria-label="Сводка сети"></div>
+<p id="error" class="error" role="alert" hidden></p><p id="notice" role="status" aria-live="polite"></p>
+<nav class="workflow" aria-label="Порядок работы"><a href="#workspace"><b>1</b> Выберите проблему</a><a href="#solutions"><b>2</b> Сравните решения</a><a href="#order-section"><b>3</b> Создайте заказ</a></nav>
+<div class="workspace" id="workspace">
+<aside class="panel incidents"><div class="section-title"><h2>Инциденты</h2><span id="incident-count" class="pill">—</span></div>
+<label>Поиск<input id="search" type="search" placeholder="Номер, вышка или район"></label>
+<div class="filters"><label>Приоритет<select id="priority-filter"><option value="">Все</option></select></label><label>Статус<select id="status-filter"><option value="">Все</option></select></label><label>Район<select id="area-filter"><option value="">Все</option></select></label><label>Проблема<select id="cause-filter"><option value="">Все</option></select></label></div>
+<div id="incidents"></div><button id="reset-filters" class="text-button">Сбросить фильтры</button></aside>
+<div class="main-column">
+<section class="panel details"><div class="section-title"><h2>Что требует внимания</h2><span id="incident-id" class="pill">Не выбран</span></div><div id="incident-details"></div><details id="share-incident" class="disclosure" hidden><summary>Ссылка на инцидент</summary><div class="share-row"><label>Ссылка для коллеги<input id="incident-link" readonly></label><button id="copy-incident-link" type="button" class="secondary">Копировать ссылку</button></div><p class="muted">Откроется выбранный инцидент. Для доступа с другого компьютера используйте общий адрес dashboard и тот же backend.</p><p id="copy-link-status" class="muted" role="status"></p></details>
+<form id="analysis-form"><details class="disclosure"><summary>Уточнить район и жалобу</summary><div class="analysis-fields"><label>Район<input id="area" placeholder="Все районы"></label><label>Период, минут<input id="window" type="number" min="1" max="10080" value="60" required></label><label class="wide">Жалоба<textarea id="complaint" rows="2" placeholder="Например: медленный интернет"></textarea></label></div></details><button id="analyze">Проверить причину</button></form>
+<p id="agent-mode" class="muted">Анализ ещё не запускался.</p><details class="disclosure"><summary>Журнал анализа</summary><ol id="agent-steps" class="steps"><li>Анализ ещё не запускался.</li></ol></details></section>
+<section class="panel solutions" id="solutions"><div class="section-title"><div><p class="eyebrow">ШАГ 2</p><h2>Как улучшить связь</h2></div><button id="compare-toggle" class="secondary" aria-expanded="false" aria-controls="comparison">Сравнить варианты</button></div>
+<form id="budget-form"><label>Доступный бюджет, ₸<input id="budget" type="text" inputmode="numeric" value="20 000 000" required aria-describedby="simulation-status"></label><button id="simulate" class="secondary">Пересчитать</button></form>
+<div class="presets" aria-label="Быстрый выбор бюджета"><button type="button" data-budget="10000000" class="secondary">10 млн ₸</button><button type="button" data-budget="20000000" class="secondary">20 млн ₸</button><button type="button" data-budget="50000000" class="secondary">50 млн ₸</button></div>
+<p id="simulation-status" class="muted" role="status">Выберите инцидент для расчёта.</p><p id="budget-gap" class="budget-gap" hidden></p><div id="decision-hint" class="decision-hint" hidden></div>
+<div id="comparison" class="table-scroll" hidden tabindex="0" role="region" aria-label="Сравнение решений"></div><div id="options" class="options"></div>
+</section>
+<section class="panel" id="order-section"><p class="eyebrow">ШАГ 3</p><h2>Передать решение команде</h2><p id="order-empty" class="muted">Выберите доступный вариант выше. Перед созданием вы увидите стоимость и прогноз.</p><div id="confirmation" hidden><h3>Проверьте выбранное решение</h3><p id="confirmation-text"></p><div id="forecast" class="forecast"></div><div class="actions"><button id="create-order">Подтвердить и создать заказ</button><button id="cancel-order" class="secondary">Отмена</button></div></div><div id="work-order" class="work-order" role="status" hidden></div></section>
+<details class="panel network"><summary>Карта сети и показатели вышек</summary>
+<div class="map-toolbar"><label>Выбранная вышка<select id="tower-picker"></select></label><a id="map-external" class="map-link" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" hidden>Открыть OpenStreetMap ↗</a></div>
+<div id="map" class="map" aria-label="Схема расположения вышек"></div>
+<p class="muted">Число у маркера — количество инцидентов этой вышки. Географическая карта выбранной вышки открывается в OpenStreetMap в новой вкладке, с передачей её координат; нужен интернет.</p>
+<p class="muted">Схема показывает все вышки по координатам, без географической подложки. Выберите вышку, затем её инцидент для диагностики. Покрытие и связи между вышками не моделируются.</p><div id="tower-details"></div></details>
+<details class="panel order-lookup"><summary>Найти ранее созданный заказ</summary><form id="order-form"><label>Номер заказа<input id="order-id" placeholder="WO-8821" required></label><button id="load-order" class="secondary">Найти заказ</button></form><div id="saved-order" hidden></div></details>
+</div></div>
+<details class="connection"><summary>Настройки подключения · <span id="connection-status">ожидание</span></summary><form id="connection-form"><label>Адрес API<input id="api-url" type="url" value="http://localhost:8000" required></label><button>Подключиться</button></form></details>
+<footer>Демонстрационный режим. Прогнозы — результаты расчётной модели, а не измерения после установки.</footer>
+</main></body></html>

@@ -36,3 +36,7 @@ API: http://localhost:8000; документация: http://localhost:8000/docs
 Для ответа интерфейсу агент ограничивает вызовы OpenAI общим бюджетом 35 секунд; при таймауте возвращается `agent_mode: demo_fallback` с записью об ошибке в журнале. Интерфейс ожидает API не дольше 45 секунд.
 
 Скопируйте `backend/.env.example` в `backend/.env` и внесите ключ и ID модели только локально. Не добавляйте ключи, ссылки на биллинг и токены в репозиторий или frontend. Работу с реальным OpenAI API нужно проверить с ключом в окружении команды; без него можно проверить demo-режим.
+
+## Запуск на Brev
+
+Backend и dashboard PR #2 уже запущены на сервере `network-intelligence-agent` как systemd-сервисы `network-intelligence-api` и `network-intelligence-ui`. Доступ через SSH-туннель: frontend http://localhost:5173, API http://localhost:8000. Это адреса на компьютере с туннелем, не публичный URL. Установщик сервисов: `bash deploy/brev/install-services.sh` после установки Python-зависимостей и размещения frontend/index.html. Полные сведения о версии, проверках, настройке OpenAI и восстановлении подключения: [docs/BREV_RUNBOOK.md](docs/BREV_RUNBOOK.md). Ключ вводится локально на сервере через configure-openai.py; проверка verify-ai.py --require-openai не засчитывает demo как настоящий AI.

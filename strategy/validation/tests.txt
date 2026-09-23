@@ -1,0 +1,52 @@
+test_negative_pilots_have_explicit_fallback (test_agent.AgentTests.test_negative_pilots_have_explicit_fallback) ... ok
+test_pilot_observations_change_choice (test_agent.AgentTests.test_pilot_observations_change_choice) ... ok
+test_reserves_resources_for_final_campaign (test_agent.AgentTests.test_reserves_resources_for_final_campaign) ... ok
+test_campaigns_and_all_contacts_fit (test_contract.ContractTests.test_campaigns_and_all_contacts_fit) ... ok
+test_nonfinite_metrics_are_json_null (test_contract.ContractTests.test_nonfinite_metrics_are_json_null) ... ok
+test_original_materials_unchanged (test_contract.ContractTests.test_original_materials_unchanged) ... ok
+test_report_matches_real_evaluator (test_contract.ContractTests.test_report_matches_real_evaluator) ... ok
+test_submission_reproducible_and_matches_file (test_contract.ContractTests.test_submission_reproducible_and_matches_file) ... ok
+test_duplicate_events_do_not_inflate_support (test_research.ResearchTests.test_duplicate_events_do_not_inflate_support) ... ok
+test_history_bin_edges (test_research.ResearchTests.test_history_bin_edges) ... ok
+test_invalid_values_and_tiny_cells_do_not_leak (test_research.ResearchTests.test_invalid_values_and_tiny_cells_do_not_leak) ... ok
+test_missing_empty_and_no_matching_history (test_research.ResearchTests.test_missing_empty_and_no_matching_history) ... ok
+test_negative_history_is_not_positive_effect (test_research.ResearchTests.test_negative_history_is_not_positive_effect) ... ok
+test_optional_columns_and_invalid_schema (test_research.ResearchTests.test_optional_columns_and_invalid_schema) ... ok
+test_outlier_resistance_and_rare_history_shrinkage (test_research.ResearchTests.test_outlier_resistance_and_rare_history_shrinkage) ... ok
+test_real_data_contract_determinism_and_no_mutation (test_research.ResearchTests.test_real_data_contract_determinism_and_no_mutation) ... ok
+test_split_large_audience_without_overlap_or_truncation (test_research.ResearchTests.test_split_large_audience_without_overlap_or_truncation) ... ok
+test_invalid_labels_and_unknown_tariffs_are_omitted (test_research_candidates.ResearchTests.test_invalid_labels_and_unknown_tariffs_are_omitted) ... ok
+test_invalid_measurements_and_exact_arpu_boundaries (test_research_candidates.ResearchTests.test_invalid_measurements_and_exact_arpu_boundaries) ... ok
+test_large_cells_split_without_overlapping_or_truncating (test_research_candidates.ResearchTests.test_large_cells_split_without_overlapping_or_truncating) ... ok
+test_malformed_history_is_not_silently_ignored (test_research_candidates.ResearchTests.test_malformed_history_is_not_silently_ignored) ... ok
+test_missing_data_labels_can_use_call_only_partition (test_research_candidates.ResearchTests.test_missing_data_labels_can_use_call_only_partition) ... ok
+test_missing_empty_and_header_only_history (test_research_candidates.ResearchTests.test_missing_empty_and_header_only_history) ... ok
+test_negative_history_is_preserved_and_cold_start_can_be_explored (test_research_candidates.ResearchTests.test_negative_history_is_preserved_and_cold_start_can_be_explored) ... ok
+test_outlier_cannot_dominate_stable_evidence (test_research_candidates.ResearchTests.test_outlier_cannot_dominate_stable_evidence) ... ok
+test_packages_and_value_affect_priority_without_fabricating_lift (test_research_candidates.ResearchTests.test_packages_and_value_affect_priority_without_fabricating_lift) ... ok
+test_real_contract_determinism_and_input_immutability (test_research_candidates.ResearchTests.test_real_contract_determinism_and_input_immutability) ... ok
+test_sparse_evidence_is_shrunk_and_duplicates_do_not_inflate_it (test_research_candidates.ResearchTests.test_sparse_evidence_is_shrunk_and_duplicates_do_not_inflate_it) ... ok
+test_unsplittable_and_tiny_cells_are_omitted (test_research_candidates.ResearchTests.test_unsplittable_and_tiny_cells_are_omitted) ... ok
+
+----------------------------------------------------------------------
+Ran 29 tests in 29.123s
+
+OK
+test_ambiguous_effect_gets_rechecked_clear_effect_stops (strategy.test_planner.PlannerTests.test_ambiguous_effect_gets_rechecked_clear_effect_stops) ... ok
+test_channel_choice_requires_observation_and_changes_with_it (strategy.test_planner.PlannerTests.test_channel_choice_requires_observation_and_changes_with_it) ... ok
+test_exhausted_pilot_api_stops_without_unbounded_retries (strategy.test_planner.PlannerTests.test_exhausted_pilot_api_stops_without_unbounded_retries) ... ok
+test_overlap_is_charged_and_only_marginal_lift_counts (strategy.test_planner.PlannerTests.test_overlap_is_charged_and_only_marginal_lift_counts) ... ok
+test_portfolio_respects_both_resources_and_campaign_count (strategy.test_planner.PlannerTests.test_portfolio_respects_both_resources_and_campaign_count) ... ok
+test_uncertain_first_offer_opens_alternative_tariff (strategy.test_planner.PlannerTests.test_uncertain_first_offer_opens_alternative_tariff) ... ok
+test_equal_value_keeps_original_choice (strategy.test_portfolio.PortfolioTests.test_equal_value_keeps_original_choice) ... ok
+test_expensive_replacement_cannot_exceed_budget (strategy.test_portfolio.PortfolioTests.test_expensive_replacement_cannot_exceed_budget) ... ok
+test_full_ten_slots_can_replace_a_weaker_campaign (strategy.test_portfolio.PortfolioTests.test_full_ten_slots_can_replace_a_weaker_campaign) ... ok
+test_negative_mandatory_fallback_is_preserved (strategy.test_portfolio.PortfolioTests.test_negative_mandatory_fallback_is_preserved) ... ok
+test_overlap_does_not_fabricate_value_for_a_duplicate (strategy.test_portfolio.PortfolioTests.test_overlap_does_not_fabricate_value_for_a_duplicate) ... ok
+test_redundant_paid_contact_is_removed (strategy.test_portfolio.PortfolioTests.test_redundant_paid_contact_is_removed) ... ok
+test_two_smaller_campaigns_escape_greedy_contact_trap (strategy.test_portfolio.PortfolioTests.test_two_smaller_campaigns_escape_greedy_contact_trap) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.114s
+
+OK

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from research.candidates import build_candidates
+from strategy.portfolio import refine_portfolio
 
 FILTERS = ("filter_current_tariff", "filter_arpu_segment", "filter_data_segment", "filter_call_segment")
 
@@ -263,5 +264,8 @@ def plan_campaigns(env) -> list[dict]:
                 break
         if not performed:
             break
-    selected, _ = allocate(arms, len(profile), env.remaining_budget, env.remaining_contacts)
+    selected, value = allocate(arms, len(profile), env.remaining_budget, env.remaining_contacts)
+    if value > 0:
+        selected = refine_portfolio(arms, selected, len(profile), env.remaining_budget,
+                                    env.remaining_contacts, pilot_credit(arms, len(profile)))
     return [{"campaign_name": f"adaptive_{i + 1}", **arm.campaign} for i, arm in enumerate(selected)]

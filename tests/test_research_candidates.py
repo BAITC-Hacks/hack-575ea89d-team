@@ -158,6 +158,10 @@ class ResearchTests(unittest.TestCase):
         self.assertAlmostEqual(_fit(p, shared), .5)  # Unknown city demand is neutral.
 
     def test_invalid_labels_and_unknown_tariffs_are_omitted(self):
+        for invalid in (float('inf'), float('nan'), -1):
+            p = self.profile.copy()
+            p.loc[0, 'predicted_arpu'] = invalid
+            self.assertEqual(build_candidates(p, self.tariffs, self.path), [])
         self.assertEqual(build_candidates(self.profile.assign(arpu_segment='INVALID'), self.tariffs, self.path), [])
         self.assertEqual(build_candidates(self.profile.assign(current_tariff='unknown'), self.tariffs, self.path), [])
         self.assertEqual(build_candidates(self.profile.iloc[:0], self.tariffs, self.path), [])

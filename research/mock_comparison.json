@@ -1,0 +1,230 @@
+{
+  "mode": "mock",
+  "variant": "current",
+  "baseline_commit": "7c2257cf53fb045148ac3652c1f68abbe8216415",
+  "python": "3.12.14",
+  "pandas": "2.3.3",
+  "numpy": "2.5.3",
+  "rows": [
+    {
+      "seed": 0,
+      "baseline": {
+        "net_arpu_gain": 3276053.2010155693,
+        "total_cost": 26196.0,
+        "total_contacts": 6549,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 0.397482700063847
+      },
+      "research": {
+        "net_arpu_gain": 3385992.6542630084,
+        "total_cost": 24620.0,
+        "total_contacts": 6155,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 1.3297039999160916
+      },
+      "delta_net": 109939.45324743912
+    },
+    {
+      "seed": 1,
+      "baseline": {
+        "net_arpu_gain": 3727614.397232169,
+        "total_cost": 33076.0,
+        "total_contacts": 8269,
+        "n_campaigns": 21,
+        "n_pilots": 12,
+        "seconds": 0.39214760006871074
+      },
+      "research": {
+        "net_arpu_gain": 3985475.8187063476,
+        "total_cost": 34080.0,
+        "total_contacts": 8520,
+        "n_campaigns": 22,
+        "n_pilots": 12,
+        "seconds": 1.320885100052692
+      },
+      "delta_net": 257861.4214741788
+    },
+    {
+      "seed": 2,
+      "baseline": {
+        "net_arpu_gain": 3275217.3103857627,
+        "total_cost": 26196.0,
+        "total_contacts": 6549,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 0.3797552000032738
+      },
+      "research": {
+        "net_arpu_gain": 3531227.7994544236,
+        "total_cost": 27200.0,
+        "total_contacts": 6800,
+        "n_campaigns": 21,
+        "n_pilots": 12,
+        "seconds": 1.337127699982375
+      },
+      "delta_net": 256010.48906866089
+    },
+    {
+      "seed": 3,
+      "baseline": {
+        "net_arpu_gain": 3128254.764891763,
+        "total_cost": 23616.0,
+        "total_contacts": 5904,
+        "n_campaigns": 19,
+        "n_pilots": 12,
+        "seconds": 0.3800889999838546
+      },
+      "research": {
+        "net_arpu_gain": 3384615.9121775823,
+        "total_cost": 24620.0,
+        "total_contacts": 6155,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 1.3206382000353187
+      },
+      "delta_net": 256361.14728581905
+    },
+    {
+      "seed": 4,
+      "baseline": {
+        "net_arpu_gain": 2218242.6921611223,
+        "total_cost": 35516.0,
+        "total_contacts": 8879,
+        "n_campaigns": 17,
+        "n_pilots": 12,
+        "seconds": 0.36432460008654743
+      },
+      "research": {
+        "net_arpu_gain": 3137545.1566726547,
+        "total_cost": 43524.0,
+        "total_contacts": 10881,
+        "n_campaigns": 21,
+        "n_pilots": 12,
+        "seconds": 1.3352634999901056
+      },
+      "delta_net": 919302.4645115323
+    },
+    {
+      "seed": 5,
+      "baseline": {
+        "net_arpu_gain": 3228895.8616127614,
+        "total_cost": 26636.0,
+        "total_contacts": 6659,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 0.4008873999118805
+      },
+      "research": {
+        "net_arpu_gain": 3530646.0602930887,
+        "total_cost": 27200.0,
+        "total_contacts": 6800,
+        "n_campaigns": 21,
+        "n_pilots": 12,
+        "seconds": 1.3837476000189781
+      },
+      "delta_net": 301750.1986803273
+    },
+    {
+      "seed": 6,
+      "baseline": {
+        "net_arpu_gain": 2927995.244298042,
+        "total_cost": 28168.0,
+        "total_contacts": 7042,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 0.42035949998535216
+      },
+      "research": {
+        "net_arpu_gain": 3182873.1889272565,
+        "total_cost": 29172.0,
+        "total_contacts": 7293,
+        "n_campaigns": 21,
+        "n_pilots": 12,
+        "seconds": 1.374818000011146
+      },
+      "delta_net": 254877.9446292147
+    },
+    {
+      "seed": 7,
+      "baseline": {
+        "net_arpu_gain": 3272221.126344014,
+        "total_cost": 26196.0,
+        "total_contacts": 6549,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 0.40821639995556325
+      },
+      "research": {
+        "net_arpu_gain": 3385168.8101324886,
+        "total_cost": 24620.0,
+        "total_contacts": 6155,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 1.305241800029762
+      },
+      "delta_net": 112947.68378847465
+    },
+    {
+      "seed": 8,
+      "baseline": {
+        "net_arpu_gain": 1882071.717127038,
+        "total_cost": 20220.0,
+        "total_contacts": 5055,
+        "n_campaigns": 19,
+        "n_pilots": 12,
+        "seconds": 0.3747076999861747
+      },
+      "research": {
+        "net_arpu_gain": 2744824.3520074147,
+        "total_cost": 22292.0,
+        "total_contacts": 5573,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 1.3136637000134215
+      },
+      "delta_net": 862752.6348803767
+    },
+    {
+      "seed": 9,
+      "baseline": {
+        "net_arpu_gain": 2496121.551953867,
+        "total_cost": 40632.0,
+        "total_contacts": 10158,
+        "n_campaigns": 20,
+        "n_pilots": 12,
+        "seconds": 0.3715154000092298
+      },
+      "research": {
+        "net_arpu_gain": 2191729.4338217955,
+        "total_cost": 37248.0,
+        "total_contacts": 9312,
+        "n_campaigns": 19,
+        "n_pilots": 12,
+        "seconds": 1.2583789000054821
+      },
+      "delta_net": -304392.11813207157
+    },
+    {
+      "seed": 42,
+      "baseline": {
+        "net_arpu_gain": 2519730.726283462,
+        "total_cost": 22548.0,
+        "total_contacts": 5637,
+        "n_campaigns": 19,
+        "n_pilots": 12,
+        "seconds": 0.36843180004507303
+      },
+      "research": {
+        "net_arpu_gain": 2678812.6194935995,
+        "total_cost": 20532.0,
+        "total_contacts": 5133,
+        "n_campaigns": 19,
+        "n_pilots": 12,
+        "seconds": 1.26766959996894
+      },
+      "delta_net": 159081.89321013773
+    }
+  ]
+}

@@ -130,7 +130,11 @@ def build_candidates(profile, tariffs, history_path=None) -> list[dict]:
         filters = {'filter_current_tariff': str(current), 'filter_arpu_segment': str(segment)}
         for cell_filters, cell in _cells(group, filters):
             value = pd.to_numeric(cell.predicted_arpu, errors='coerce')
-            audience_value = float(value[np.isfinite(value) & (value >= 0)].sort_values().sum())
+            # A public filter would still select malformed rows. Reject the
+            # entire cell instead of silently pricing only its valid subset.
+            if not (np.isfinite(value) & (value >= 0)).all():
+                continue
+            audience_value = float(value.sort_values().sum())
             options = []
             for target in known:
                 if target == current:

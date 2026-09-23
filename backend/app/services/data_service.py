@@ -18,7 +18,11 @@ def get_tower(tower_id: int) -> dict | None:
 
 
 def get_incidents() -> list[dict]:
-    return read_json("incidents.json")
+    from app.services import incident_service
+
+    combined = {item["id"]: item for item in read_json("incidents.json")}
+    combined.update({item["id"]: item for item in incident_service.get_saved_incidents()})
+    return list(combined.values())
 
 
 def get_incident(incident_id: str) -> dict | None:

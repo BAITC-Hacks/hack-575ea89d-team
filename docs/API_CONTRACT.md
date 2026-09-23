@@ -38,6 +38,10 @@ Base URL: `http://localhost:8000`. Ответы — JSON. Все деньги в
 
 Ответ: `{"tower_id":17,"budget_kzt":20000000,"options":[...],"data_source":"synthetic_simulation"}`. Каждый вариант содержит `solution_type`, `name`, `cost_kzt`, `available`, `capacity_increase_pct`, `coverage_increase_pct`, `installation_days`, `expected_load_pct`, `affected_users_improved`.
 
+Формулы MVP: `expected_load_pct = round(current_load_pct / (1 + capacity_increase_pct / 100))`. Это предполагает неизменный трафик и пропорциональное увеличение ёмкости. `affected_users_improved` — оценка, а не число уникальных абонентов: `round(affected_users * min(1, (current_load_pct - expected_load_pct_unrounded) / 100 + coverage_increase_pct / 100))`. Предполагается, что облегчение нагрузки и прирост покрытия помогают непересекающимся долям затронутой аудитории; сумма ограничена числом `affected_users` вышки. Набор синтетических данных не моделирует реальную топологию или поведение абонентов.
+
+Для текущих демонстрационных кластеров жалобы дополнительно содержат `demo_age_minutes`: это относительный возраст синтетической записи, чтобы сценарий оставался повторяемым после первого часа. Фактический `timestamp` сохраняет время генерации набора. Обычные записи без `demo_age_minutes` фильтруются по `timestamp`.
+
 ## POST /action
 
 Запрос: `{"incident_id":"INC-1042","tower_id":17,"solution_type":"upgrade_existing","budget_kzt":20000000}`.

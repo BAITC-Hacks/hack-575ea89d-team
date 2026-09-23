@@ -1,51 +1,40 @@
-# API contract v0.1
+# Контракт модулей v1 — Beeline Tariff Campaigns
 
-Base URL: `http://localhost:8000`. Ответы — JSON. Все деньги в целых KZT, все показатели сети — синтетические.
+## Вход и результат
 
-| Метод | Путь | Для чего |
-|---|---|---|
-| GET | `/health` | Проверка сервера |
-| GET | `/towers` | Маркеры и показатели вышек |
-| GET | `/incidents` | Список инцидентов |
-| GET | `/incidents/{incident_id}` | Карточка инцидента |
-| POST | `/analyze` | Анализ и журнал действий агента |
-| POST | `/simulate` | Варианты под бюджет |
-| POST | `/action` | Создание work order после выбора человека |
-| GET | `/work-orders/{work_order_id}` | Прочитать сохранённый work order |
+`Agent.act(env) -> list[dict]`. Метод пользуется только публичными `env.customer_profile`, `env.tariffs`, `env.channels`, `env.remaining_budget`, `env.remaining_contacts`, `env.pilots_left`, `env.pilot_history`, `env.run_pilot`.
 
-## POST /analyze
+Кампания: `campaign_name`, обязательные `target_tariff` (из `env.tariffs.tariff_plan_code`) и `channel` (`push`, `sms`, `digital_ads`, `call`). Необязательные фильтры: `filter_current_tariff` (один тариф либо несколько через `;`), `filter_arpu_segment` (`LOW/MID/HIGH`), `filter_data_segment` (`NON_USER/LITE/HEAVY`), `filter_call_segment` (`LOW/MEDIUM/HIGH`). Отсутствующий фильтр не ограничивает сегмент. Иные поля и explicit_ids в финальных кампаниях не использовать.
 
-Запрос: `{"area":"Astana District X","time_window_minutes":60,"complaint_text":"жалобы на медленный интернет"}`. Все поля необязательны.
+## Ноутбук 2 → ноутбук 1
 
-Ответ:
-
-```json
-{
-  "incident": {"id":"INC-1042","status":"investigating","priority":"critical","complaints_count":347,"affected_users":1823,"tower_id":17,"probable_cause":"network_congestion","assigned_team":"Network Team A","reason":"Нагрузка вышки совпадает со всплеском жалоб."},
-  "recurring": true,
-  "solution_options": [],
-  "agent_steps": [{"status":"completed","message":"Проверены жалобы."}],
-  "agent_mode": "openai",
-  "data_source": "synthetic"
-}
+```python
+from research.candidates import build_candidates
+candidates = build_candidates(profile, tariffs, history_path=None)
 ```
 
-`agent_steps` содержит только фактически выполненные вызовы Python-инструментов с полями `tool`, `arguments`, `status`, `message`. `agent_mode` равен `openai`, `demo` или `demo_fallback`. При отсутствии жалоб анализ может опираться на явно синтетические записи инцидентов; журнал при этом показывает фактическое число прочитанных жалоб. Числа в примере иллюстрируют сценарий и должны поступать из данных или расчётов.
+Чистая детерминированная функция: не изменяет входы, не вызывает пилоты, сеть или LLM. По умолчанию читает выданную `data/change_tariff.csv`. Возвращает упорядоченный список словарей, лучший кандидат первым:
 
-## POST /simulate
+```json
+{"filter_current_tariff":"tariff_4","filter_arpu_segment":"MID","target_tariff":"tariff_8","prior_lift_ratio":0.12,"history_support":40,"priority":125000.0}
+```
 
-Запрос: `{"tower_id":17,"budget_kzt":20000000}`.
+Числа здесь — пример структуры. `prior_lift_ratio` — историческое относительное изменение среди сменивших тариф, доля (0.12 = 12%), не измеренный эффект кампании с конверсией. `history_support` — число исторических записей. `priority` — сравнительная оценка для отбора пилотов, не прибыль. Разрешены дополнительные стандартные фильтры. Канал выбирает ноутбук 1. В baseline каждый кандидат охватывает 10–5000 абонентов. Сохранять разнообразие сегментов; после изменений контракт и тесты должны совпадать.
 
-Ответ: `{"tower_id":17,"budget_kzt":20000000,"options":[...],"data_source":"synthetic_simulation"}`. Каждый вариант содержит `solution_type`, `name`, `cost_kzt`, `available`, `capacity_increase_pct`, `coverage_increase_pct`, `installation_days`, `expected_load_pct`, `affected_users_improved`.
+## Пилоты и планирование
 
-Формулы MVP: `expected_load_pct = round(current_load_pct / (1 + capacity_increase_pct / 100))`. Это предполагает неизменный трафик и пропорциональное увеличение ёмкости. `affected_users_improved` — оценка, а не число уникальных абонентов: `round(affected_users * min(1, (current_load_pct - expected_load_pct_unrounded) / 100 + coverage_increase_pct / 100))`. Предполагается, что облегчение нагрузки и прирост покрытия помогают непересекающимся долям затронутой аудитории; сумма ограничена числом `affected_users` вышки. Набор синтетических данных не моделирует реальную топологию или поведение абонентов.
+`env.run_pilot(target_tariff, channel, n_customers, **filters)` возвращает `observed_lift_ratio`, `observed_lift_total`, `n_customers`, `cost`, остатки лимитов. `observed_lift_ratio` уже содержит эффект выбранного канала и шум. Не умножать его повторно на конверсию того же канала. Точный перенос на другой канал нельзя предполагать без учёта ограничения вероятности конверсии единицей.
 
-Для текущих демонстрационных кластеров жалобы дополнительно содержат `demo_age_minutes`: это относительный возраст синтетической записи, чтобы сценарий оставался повторяемым после первого часа. Фактический `timestamp` сохраняет время генерации набора. Обычные записи без `demo_age_minutes` фильтруются по `timestamp`.
+Внутри planner можно использовать `select_segment(profile, campaign)` для разрешённых фильтров. Бюджет и охват env списываются пилотами. Финальные кампании ещё не списаны: planner резервирует их самостоятельно. Повторные контакты учитываются в охвате и затратах, даже если прибыль дедуплицируется. Порядок кампаний важен при ограничениях. Нельзя ориентироваться на число строк общих деталей скоринга как на число финальных кампаний: там присутствуют пилоты.
 
-## POST /action
+## Ноутбук 1 → ноутбук 3
 
-Запрос: `{"incident_id":"INC-1042","tower_id":17,"solution_type":"upgrade_existing","budget_kzt":20000000}`.
+`python tools/report.py --seed 42 --output artifacts/report.json` запускает официальный локальный оценщик и сохраняет JSON:
 
-Ответ: `{"work_order":{"id":"WO-...","team":"Network Team A","task":"Upgrade Tower #17","budget_kzt":12000000,"priority":"critical","status":"pending"},"agent_steps":[...]}`. Заказ сохраняется в локальной SQLite; `GET /work-orders/{id}` возвращает его после перезапуска backend.
+- `schema_version`: 1;
+- `mode`: `mock`, `seed`: integer;
+- `metrics`: результат официального local_eval (net_arpu_gain, total_cost, total_contacts и прочие поля);
+- `final_campaigns`: фактически возвращённый Agent список;
+- `pilot_history`: публичные наблюдения пилотов.
 
-Сервер проверяет, что инцидент связан с вышкой, вариант существует и укладывается в бюджет. Ошибки входных данных: HTTP 4xx, тело `{"detail":"..."}`.
+NaN/Infinity заменяются на null для валидного JSON (например, ROI при бесплатных контактах). Отчёт разрешено использовать для демонстрации, нельзя передавать истинные mock-метрики обратно агенту. Демонстрация должна отличать наблюдаемый пилотный эффект от локального оценённого результата. Старого HTTP API больше нет. Если нужен UI, сначала достаточно чтения этого JSON.

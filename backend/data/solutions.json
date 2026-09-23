@@ -1,5 +1,0 @@
-[
-  {"solution_type":"upgrade_existing","name":"Upgrade","cost_kzt":12000000,"capacity_increase_pct":35,"coverage_increase_pct":8,"installation_days":7},
-  {"solution_type":"additional_equipment","name":"Additional equipment","cost_kzt":18000000,"capacity_increase_pct":50,"coverage_increase_pct":5,"installation_days":14},
-  {"solution_type":"new_tower","name":"New tower","cost_kzt":40000000,"capacity_increase_pct":70,"coverage_increase_pct":18,"installation_days":60}
-]

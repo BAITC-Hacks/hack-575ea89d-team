@@ -11,6 +11,7 @@ Base URL: `http://localhost:8000`. Ответы — JSON. Все деньги в
 | POST | `/analyze` | Анализ и журнал действий агента |
 | POST | `/simulate` | Варианты под бюджет |
 | POST | `/action` | Создание work order после выбора человека |
+| GET | `/work-orders/{work_order_id}` | Прочитать сохранённый work order |
 
 ## POST /analyze
 
@@ -24,11 +25,12 @@ Base URL: `http://localhost:8000`. Ответы — JSON. Все деньги в
   "recurring": true,
   "solution_options": [],
   "agent_steps": [{"status":"completed","message":"Проверены жалобы."}],
+  "agent_mode": "openai",
   "data_source": "synthetic"
 }
 ```
 
-`agent_steps` содержит только фактически выполненные действия. Числа в примере иллюстрируют сценарий и должны вычисляться из набора данных.
+`agent_steps` содержит только фактически выполненные вызовы Python-инструментов с полями `tool`, `arguments`, `status`, `message`. `agent_mode` равен `openai`, `demo` или `demo_fallback`. При отсутствии жалоб анализ может опираться на явно синтетические записи инцидентов; журнал при этом показывает фактическое число прочитанных жалоб. Числа в примере иллюстрируют сценарий и должны поступать из данных или расчётов.
 
 ## POST /simulate
 
@@ -40,6 +42,6 @@ Base URL: `http://localhost:8000`. Ответы — JSON. Все деньги в
 
 Запрос: `{"incident_id":"INC-1042","tower_id":17,"solution_type":"upgrade_existing","budget_kzt":20000000}`.
 
-Ответ: `{"work_order":{"id":"WO-...","team":"Network Team A","task":"Upgrade Tower #17","budget_kzt":12000000,"priority":"critical","status":"pending"}}`.
+Ответ: `{"work_order":{"id":"WO-...","team":"Network Team A","task":"Upgrade Tower #17","budget_kzt":12000000,"priority":"critical","status":"pending"},"agent_steps":[...]}`. Заказ сохраняется в локальной SQLite; `GET /work-orders/{id}` возвращает его после перезапуска backend.
 
 Сервер проверяет, что инцидент связан с вышкой, вариант существует и укладывается в бюджет. Ошибки входных данных: HTTP 4xx, тело `{"detail":"..."}`.

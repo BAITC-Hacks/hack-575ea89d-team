@@ -13,7 +13,6 @@ def main():
     parser = argparse.ArgumentParser(description="Start the Network Intelligence dashboard and API")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--demo", action="store_true", help="Generate separate synthetic 40-tower/4000-complaint data")
     parser.add_argument("--no-ai", action="store_true", help="Use Python demo mode even if a key is configured")
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
@@ -27,13 +26,6 @@ def main():
     if ready.returncode:
         subprocess.run([str(python), "-m", "pip", "install", "-r", str(ROOT / "backend/requirements.txt")], check=True)
     env = os.environ.copy()
-    if args.demo:
-        from scripts.generate_demo import generate
-        directory = ROOT / "backend" / ".demo-data"
-        manifest = generate(directory)
-        env["NETWORK_DATA_DIR"] = str(directory)
-        env["NETWORK_STATE_DB"] = str(directory / "state.sqlite3")
-        print(f"Synthetic demo: {manifest['counts']['towers']} towers, {manifest['counts']['complaints']} complaints.", flush=True)
     if args.no_ai:
         # dotenv does not override an explicitly supplied environment value.
         env["OPENAI_API_KEY"] = ""

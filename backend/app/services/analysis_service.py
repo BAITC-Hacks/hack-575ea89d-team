@@ -27,7 +27,7 @@ def _step_message(name: str, result: dict) -> str:
     if "error" in result:
         return result["error"]
     if name == "get_complaints":
-        return f"Проверены жалобы: {result['total']} записей в выбранном окне."
+        return f"Проверены жалобы: {result['total']} записей в выбранном окне." + (" Используется относительный возраст синтетических записей." if result.get("window_basis") == "synthetic_relative_age" else "")
     if name == "get_towers":
         return f"Получены данные о {len(result['items'])} вышках."
     if name == "get_incidents":

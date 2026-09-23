@@ -14,19 +14,25 @@ def _parse_time(value: str | None) -> datetime | None:
         return None
 
 
+
+def _in_window(row: dict, cutoff: datetime, now: datetime, minutes: int) -> bool:
+    # Only explicitly synthetic records may freeze their relative demo age.
+    age = row.get("demo_age_minutes")
+    if row.get("data_source") == "synthetic" and type(age) in (int, float):
+        return 0 <= age <= minutes
+    timestamp = _parse_time(row.get("timestamp") or row.get("time"))
+    return timestamp is not None and cutoff <= timestamp <= now
+
+
 def get_complaints(area: str | None = None, time_window_minutes: int = 60) -> dict:
     """Summarize complaints by tower; do not send thousands of raw texts to the model."""
     rows = data_service.read_json("complaints.json")
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=time_window_minutes)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=time_window_minutes)
     matches = [
         row for row in rows
         if (area is None or row.get("area") == area)
-        and (
-            0 <= row["demo_age_minutes"] <= time_window_minutes
-            if isinstance(row.get("demo_age_minutes"), (int, float))
-            else (timestamp := _parse_time(row.get("timestamp") or row.get("time"))) is not None
-            and timestamp >= cutoff
-        )
+        and _in_window(row, cutoff, now, time_window_minutes)
     ]
     by_tower = Counter(row.get("tower_id") for row in matches if row.get("tower_id") is not None)
     clusters = []
@@ -36,7 +42,8 @@ def get_complaints(area: str | None = None, time_window_minutes: int = 60) -> di
         samples = [row["text"][:180] for row in tower_rows if isinstance(row.get("text"), str)][:3]
         clusters.append({"tower_id": tower_id, "complaints_count": count,
                          "issue_types": dict(issue_types), "sample_texts": samples})
-    return {"total": len(matches), "clusters": clusters, "source": "complaints_json"}
+    return {"total": len(matches), "clusters": clusters, "source": "complaints_json",
+            "window_basis": "synthetic_relative_age" if any(row.get("data_source") == "synthetic" and type(row.get("demo_age_minutes")) in (int, float) for row in matches) else "timestamp"}
 
 
 def get_towers(area: str | None = None) -> dict:
@@ -56,7 +63,12 @@ def get_network_data(tower_id: int) -> dict:
     if tower is None:
         raise ValueError(f"Unknown tower_id: {tower_id}")
     history = [item for item in data_service.get_incidents() if item["tower_id"] == tower_id]
-    return {"tower": tower, "incidents": history, "source": "synthetic_network_data"}
+    recommendations = {}
+    for item in history:
+        _, team, priority = incident_service._recommended(tower, item["complaints_count"])
+        recommendations[item["id"]] = {"team": team, "priority": priority}
+    return {"tower": tower, "incidents": history, "recommendations": recommendations,
+            "source": "synthetic_network_data"}
 
 
 def calculate_solution(tower_id: int) -> dict:

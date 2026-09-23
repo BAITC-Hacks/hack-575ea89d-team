@@ -45,8 +45,8 @@
 <div id="map" class="map" hidden aria-label="Схема расположения вышек"></div>
 <p class="muted">Нажмите маркер для выбора вышки, затем откройте её инцидент ниже. Карту можно перемещать и масштабировать кнопками +/−. Для улиц нужен интернет; схема доступна без подложки.</p>
 <p class="muted">Схема показывает все вышки по координатам, без географической подложки. Выберите вышку, затем её инцидент для диагностики. Покрытие и связи между вышками не моделируются.</p><div id="tower-details"></div></details>
-<details class="panel order-lookup"><summary>Найти ранее созданный заказ</summary><form id="order-form"><label>Номер заказа<input id="order-id" placeholder="WO-8821" required></label><button id="load-order" class="secondary">Найти заказ</button></form><div id="saved-order" hidden></div></details>
+<details class="panel order-lookup"><summary>Сохранённые заказы</summary><button id="refresh-orders" type="button" class="secondary">Обновить список</button><div id="order-list"></div><form id="order-form"><label>Номер заказа<input id="order-id" placeholder="WO-8821" required></label><button id="load-order" class="secondary">Найти заказ</button></form><div id="saved-order" hidden></div></details>
 </div></div>
-<details class="connection"><summary>Настройки подключения · <span id="connection-status">ожидание</span></summary><form id="connection-form"><label>Адрес API<input id="api-url" type="url" value="http://localhost:8000" required></label><button>Подключиться</button></form></details>
+<details class="connection"><summary>Настройки подключения · <span id="connection-status">ожидание</span></summary><form id="connection-form"><label>Адрес API<input id="api-url" type="url" value="http://localhost:8000" required></label><button>Подключиться</button><button id="reset-api" type="button" class="secondary">Использовать адрес этой страницы</button></form></details>
 <footer>Демонстрационный режим. Прогнозы — результаты расчётной модели, а не измерения после установки.</footer>
 </main></body></html>

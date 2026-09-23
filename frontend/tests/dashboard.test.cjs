@@ -45,7 +45,7 @@ function harness({saved = {}, url = 'http://localhost:5173/', storageBlocked = f
       const path = new URL(url).pathname, payload = init.body && JSON.parse(init.body);
       calls.push({path,payload});
       if(responder) { const response = await responder(path,payload); if(response) return response; }
-      const data = path === '/towers' ? {items:towers} : path === '/incidents' ? {items:incidents} : path.startsWith('/incidents/') ? {incident:incidents.find(i=>i.id===path.split('/').pop())} : path === '/simulate' ? {tower_id:payload.tower_id,budget_kzt:payload.budget_kzt,options} : {};
+      const data = path === '/work-orders' ? {items:[]} : path === '/towers' ? {items:towers} : path === '/incidents' ? {items:incidents} : path.startsWith('/incidents/') ? {incident:incidents.find(i=>i.id===path.split('/').pop())} : path === '/simulate' ? {tower_id:payload.tower_id,budget_kzt:payload.budget_kzt,options} : {};
       return {ok:true,json:async()=>data};
     }
   });
@@ -123,6 +123,18 @@ test('settings are scoped by API; connection errors cannot be masked by a succes
   const good=harness(); await good.ready(); good.evaluate("savePreferences(); state.base='http://localhost:8001'");
   assert.equal(good.evaluate('readPreferences().budget'),undefined);
   assert.throws(()=>good.evaluate("validateBase('https://user:secret@example.com')"));
+});
+
+
+test('unified server uses the page origin instead of localhost on a teammate computer',async()=>{
+  const h=harness({url:'http://demo-server:8123/?incident=INC-1042'}); await h.ready();
+  assert.equal(h.evaluate('state.base'),'http://demo-server:8123');
+});
+test('analysis explicitly targets the selected incident',async()=>{
+  const h=harness({responder:async(path,payload)=>path==='/analyze' ? {ok:true,json:async()=>({incident:incidents[0],agent_steps:[],agent_mode:'demo'})} : null});
+  await h.ready(); h.nodes.get('window').value='60';
+  h.nodes.get('analysis-form').onsubmit({preventDefault(){}}); await h.ready();
+  assert.equal(h.calls.find(c=>c.path==='/analyze').payload.incident_id,'INC-1042');
 });
 test('studio prioritizes affordable load reduction but allows inspection of an unaffordable option',async()=>{
   const h=harness(); await h.ready();

@@ -7,9 +7,10 @@ SolutionType = Literal["upgrade_existing", "additional_equipment", "new_tower"]
 
 
 class AnalyzeRequest(BaseModel):
-    area: str | None = None
+    incident_id: str | None = Field(default=None, min_length=1, max_length=100)
+    area: str | None = Field(default=None, max_length=200)
     time_window_minutes: int = Field(default=60, ge=1, le=10080)
-    complaint_text: str | None = None
+    complaint_text: str | None = Field(default=None, max_length=4000)
 
 
 class SimulateRequest(BaseModel):

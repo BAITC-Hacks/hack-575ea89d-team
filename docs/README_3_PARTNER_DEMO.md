@@ -8,12 +8,14 @@
 
 ## Начало
 
-Прочитать AGENTS.md, STATUS.md, README.md, PARTICIPANT_GUIDE.md, docs/API_CONTRACT.md и этот файл. Проверить ветку и чужие изменения. После публикации новой основы:
+Прочитать AGENTS.md, STATUS.md, README.md, PARTICIPANT_GUIDE.md, docs/API_CONTRACT.md и этот файл. Проверить ветку и чужие изменения. Пока PR #4 открыт, начать от опубликованной ветки новой основы:
 
 ```bash
 git fetch origin
-git switch -c work/laptop-3-demo origin/main
+git switch -c work/laptop-3-demo origin/codex/beeline-tariff-reset
 ```
+
+После объединения PR #4 вместо origin/codex/beeline-tariff-reset используйте origin/main.
 
 При существующей ветке продолжить её, не сбрасывать. Установка по README. Запустить проверки baseline и `python tools/report.py --seed 42`.
 

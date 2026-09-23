@@ -8,12 +8,14 @@
 
 ## Начало
 
-Прочитать AGENTS.md, STATUS.md, README.md, PARTICIPANT_GUIDE.md, docs/API_CONTRACT.md. Проверить чистоту своей копии и актуальный main. После публикации новой основы:
+Прочитать AGENTS.md, STATUS.md, README.md, PARTICIPANT_GUIDE.md, docs/API_CONTRACT.md. Проверить чистоту своей копии и актуальный main. Пока PR #4 открыт, начать от опубликованной ветки новой основы:
 
 ```bash
 git fetch origin
-git switch -c work/laptop-2-research origin/main
+git switch -c work/laptop-2-research origin/codex/beeline-tariff-reset
 ```
+
+После объединения PR #4 вместо origin/codex/beeline-tariff-reset используйте origin/main.
 
 Существующую ветку продолжить, не перезаписывать. Поднять окружение по README. Начать с research/candidates.py и заголовков CSV.
 
